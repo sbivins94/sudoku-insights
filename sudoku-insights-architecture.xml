@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="app.diagrams.net" modified="2025-12-11T00:00:00.000Z" agent="draw.io" version="20.6.5">
+  <diagram name="SudokuApp Architecture" id="architectureDiagram">
+    <mxGraphModel dx="1000" dy="700" grid="1" gridSize="10">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+
+        <!-- Sudoku iOS App -->
+        <mxCell id="app" value="Sudoku iOS App" style="rounded=1;fill=#b3cde0;strokeColor=#000000;" vertex="1" parent="1">
+          <mxGeometry x="200" y="10" width="220" height="90" as="geometry"/>
+        </mxCell>
+
+        <!-- UI Components -->
+        <mxCell id="ui" value="UI Components\nGrid Display" style="rounded=1;fill=#fbb4ae;strokeColor=#000000;" vertex="1" parent="1">
+          <mxGeometry x="50" y="150" width="180" height="80" as="geometry"/>
+        </mxCell>
+
+        <!-- Puzzle Engine -->
+        <mxCell id="logic" value="Puzzle Engine\nGenerator/Solver" style="rounded=1;fill=#ccebc5;strokeColor=#000000;" vertex="1" parent="1">
+          <mxGeometry x="350" y="150" width="180" height="80" as="geometry"/>
+        </mxCell>
+
+        <!-- Move Tracker -->
+        <mxCell id="tracking" value="Move Tracker\nLogger" style="rounded=1;fill=#fed9a6;strokeColor=#000000;" vertex="1" parent="1">
+          <mxGeometry x="200" y="280" width="200" height="80" as="geometry"/>
+        </mxCell>
+
+        <!-- Data Export -->
+        <mxCell id="data" value="Data Export\nCSV/JSON" style="rounded=1;fill=#decbe4;strokeColor=#000000;" vertex="1" parent="1">
+          <mxGeometry x="200" y="410" width="200" height="80" as="geometry"/>
+        </mxCell>
+
+        <!-- Connectors -->
+        <mxCell id="edge1" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#000000;" edge="1" parent="1"
+                source="app" target="ui">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="edge2" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#000000;" edge="1" parent="1"
+                source="app" target="logic">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="edge3" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#000000;" edge="1" parent="1"
+                source="app" target="tracking">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="edge4" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#000000;" edge="1" parent="1"
+                source="tracking" target="data">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

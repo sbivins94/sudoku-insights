@@ -1,0 +1,33 @@
+# Xcode
+build/
+*.pbxuser
+*.mode1v3
+*.mode2v3
+*.perspectivev3
+*.xcworkspace
+xcuserdata/
+.DS_Store
+DerivedData/
+
+# Swift Package Manager
+.build/
+*.xcodeproj
+Packages/
+
+# Compiled binaries
+*.o
+*.a
+*.dylib
+
+# IDE
+.vscode/
+*.swiftpm
+.swiftpm/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project specific
+.env
+*.log
