@@ -59,4 +59,47 @@ final class SudokuInsightsTests: XCTestCase {
         XCTAssertEqual(report.heatmap[0][0], 2)
         XCTAssertEqual(report.heatmap[1][1], 1)
     }
+    
+    func testPuzzleGeneration() {
+        let puzzle = SudokuEngine.generatePuzzle(difficulty: .easy)
+        
+        // Check grid dimensions
+        XCTAssertEqual(puzzle.initialGrid.count, 9)
+        XCTAssertEqual(puzzle.initialGrid[0].count, 9)
+        XCTAssertEqual(puzzle.solution.count, 9)
+        XCTAssertEqual(puzzle.solution[0].count, 9)
+        
+        // Check that initial grid has some empty cells (0s)
+        let emptyCells = puzzle.initialGrid.flatMap { $0 }.filter { $0 == 0 }.count
+        XCTAssertGreaterThan(emptyCells, 0)
+        
+        // Check that solution has no empty cells
+        let solutionEmptyCells = puzzle.solution.flatMap { $0 }.filter { $0 == 0 }.count
+        XCTAssertEqual(solutionEmptyCells, 0)
+    }
+    
+    func testCandidateGeneration() {
+        let puzzle = SudokuEngine.generatePuzzle()
+        
+        // Find an empty cell
+        var testRow = -1
+        var testCol = -1
+        
+        for row in 0..<9 {
+            for col in 0..<9 {
+                if puzzle.initialGrid[row][col] == 0 {
+                    testRow = row
+                    testCol = col
+                    break
+                }
+            }
+            if testRow != -1 { break }
+        }
+        
+        if testRow != -1 {
+            let candidates = SudokuEngine.getCandidates(grid: puzzle.initialGrid, row: testRow, col: testCol)
+            XCTAssertGreaterThan(candidates.count, 0)
+            XCTAssertLessThanOrEqual(candidates.count, 9)
+        }
+    }
 }

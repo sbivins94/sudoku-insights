@@ -14,13 +14,14 @@ let package = Package(
         ),
     ],
     dependencies: [
-        .package(url: "https://github.com/jphong1111/SwiftSudokuSolver.git", from: "1.0.0"),
+        // Temporarily removed SwiftSudokuSolver - repository doesn't exist
+        // .package(url: "https://github.com/jphong1111/SwiftSudokuSolver.git", from: "1.0.0"),
     ],
     targets: [
         .target(
             name: "SudokuInsights",
             dependencies: [
-                .product(name: "SwiftSudokuSolver", package: "SwiftSudokuSolver")
+                // .product(name: "SwiftSudokuSolver", package: "SwiftSudokuSolver")
             ],
             path: "Sources/SudokuInsights"
         ),
