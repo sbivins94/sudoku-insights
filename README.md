@@ -53,17 +53,20 @@ sudoku-insights/
 ### Development Workflow
 
 1. **Clone the repository**:
+
    ```bash
    git clone https://github.com/sbivins94/sudoku-insights.git
    cd sudoku-insights
    ```
 
 2. **Build locally** (requires macOS):
+
    ```bash
    swift build
    ```
 
 3. **Run tests** (requires macOS):
+
    ```bash
    swift test
    ```
@@ -84,27 +87,32 @@ Since iOS development requires macOS, use **GitHub Actions** for automated build
 ## Milestones
 
 ### Milestone 1 — Project Skeleton ✅
+
 - Swift package structure
 - Core models and telemetry recorder
 - Analytics engine skeleton
 - GitHub Actions workflow
 
 ### Milestone 2 — Full Telemetry (In Progress)
+
 - Enhanced event recording
 - Session serialization
 - File-based persistence
 
 ### Milestone 3 — Analytics Engine v1
+
 - Move timing analysis
 - Strategy classification
 - Heatmap generation
 
 ### Milestone 4 — UI & Visualization
+
 - GameBoard SwiftUI view
 - Analytics dashboard
 - Interactive heatmap
 
 ### Milestone 5 — Real Puzzles & Features
+
 - Full SwiftSuDoKu integration
 - Difficulty selection
 - Pause/save/continue features
@@ -113,26 +121,34 @@ Since iOS development requires macOS, use **GitHub Actions** for automated build
 ## Core Components
 
 ### GameSession
+
 Represents a complete game from start to finish:
+
 - Puzzle metadata
 - Tap event log
 - Duration and completion status
 
 ### TapEvent
+
 Individual user action with:
+
 - Timestamp (relative to session start)
 - Grid coordinates
 - Action type (select, enter, erase, note)
 
 ### AnalyticsEngine
+
 Processes telemetry to extract:
+
 - Performance metrics (time, accuracy)
 - Strategy classification
 - Interaction heatmaps
 - "Mental state indicators"
 
 ### PersistenceService
+
 Handles:
+
 - Session serialization (JSON)
 - Report caching
 - Local file storage
@@ -146,6 +162,7 @@ swift test
 ```
 
 Current test coverage:
+
 - ✅ Session creation and event recording
 - ✅ Analytics report generation
 - ✅ Heatmap generation
