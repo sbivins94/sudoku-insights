@@ -20,7 +20,7 @@ public class AnalyticsEngine {
         
         return AnalyticsReport(
             sessionID: session.id,
-            difficulty: session.puzzle.difficulty,
+            difficulty: session.difficulty,
             totalMoves: totalMoves,
             timeToSolve: timeToSolve,
             errorRate: errorRate,
@@ -70,7 +70,7 @@ public class AnalyticsEngine {
         if noteRatio > 0.3 {
             return StrategyProfile(primary: .candidateBuilder, secondary: .scanner, confidence: 0.8)
         } else if errorRatio > 0.25 {
-            return StrategyProfile(primary: .brutForcer, secondary: .scanner, confidence: 0.7)
+            return StrategyProfile(primary: .bruteForcer, secondary: .scanner, confidence: 0.7)
         } else if selectRatio > 0.5 && enterRatio < 0.3 {
             return StrategyProfile(primary: .scanner, secondary: .logicalSolver, confidence: 0.75)
         } else {
@@ -121,4 +121,73 @@ public class AnalyticsEngine {
         
         return maxGap
     }
+    
+    // MARK: - Session Metrics
+    
+    /// Generate simplified session metrics for dashboard
+    public func generateSessionMetrics() -> SessionMetrics {
+        let totalTaps = tapEvents.count
+        let elapsedTime = session.duration
+        let avgHesitation = averageTimePerMove()
+        
+        return SessionMetrics(
+            totalTaps: totalTaps,
+            elapsedTime: elapsedTime,
+            averageHesitationTime: avgHesitation
+        )
+    }
+    
+    /// Generate detailed text report
+    public func generateDetailedReport() -> DetailedReport {
+        let sessionOverview = """
+        Session started: \(session.startTime)
+        Difficulty: \(session.difficulty.rawValue.capitalized)
+        Status: \(session.isCompleted ? "Completed" : "In Progress")
+        """
+        
+        let metrics = generateSessionMetrics()
+        let performanceMetrics = """
+        Total Taps: \(metrics.totalTaps)
+        Elapsed Time: \(String(format: "%.1f", metrics.elapsedTime)) seconds
+        Average Hesitation: \(String(format: "%.2f", metrics.averageHesitationTime)) seconds
+        Error Rate: \(String(format: "%.1f", calculateErrorRate() * 100))%
+        """
+        
+        let strategy = classifyStrategy()
+        let cognitivePatterns = """
+        Primary Strategy: \(strategy.primaryStrategy.rawValue)
+        Secondary Strategy: \(strategy.secondaryStrategy?.rawValue ?? "None")
+        Confidence: \(String(format: "%.0f", strategy.confidence * 100))%
+        Longest Pause: \(String(format: "%.1f", longestInactivityPeriod())) seconds
+        """
+        
+        let recommendations = """
+        Based on your solving patterns:
+        - You show signs of \(strategy.primaryStrategy.rawValue) approach
+        - Consider practicing with \(session.difficulty == .easy ? "medium" : "harder") puzzles
+        - Your average thinking time is \(String(format: "%.1f", metrics.averageHesitationTime)) seconds
+        """
+        
+        return DetailedReport(
+            sessionOverview: sessionOverview,
+            performanceMetrics: performanceMetrics,
+            cognitivePatterns: cognitivePatterns,
+            recommendations: recommendations
+        )
+    }
+}
+
+/// Simplified metrics for dashboard display
+public struct SessionMetrics {
+    public let totalTaps: Int
+    public let elapsedTime: TimeInterval
+    public let averageHesitationTime: TimeInterval
+}
+
+/// Detailed text report structure
+public struct DetailedReport {
+    public let sessionOverview: String
+    public let performanceMetrics: String
+    public let cognitivePatterns: String
+    public let recommendations: String
 }

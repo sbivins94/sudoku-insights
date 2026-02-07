@@ -12,7 +12,7 @@ Tech stack is fully Apple-native:
 * **Primary Library**: **SwiftSuDoKu** (preferred)
 * **Secondary Options**: `Swift-Sudoku-Solver`, `sudoku-swift` (only if gaps appear)
 
-This project is assumed to run on **macOS via Xcode** for the actual build, but the *planning + coding* phase can partially occur in VS Code on Windows using **Swift for Windows**, **SwiftWasm**, or a remote macOS environment—Copilot Agent can scaffold the Swift project before you open it in Xcode.
+This project runs natively on **macOS** with Xcode and Swift Package Manager. Development can be done in Xcode or VS Code with Swift extensions, with full native build and test capabilities.
 
 ---
 

@@ -54,22 +54,51 @@ public struct SudokuPuzzle: Codable, Identifiable {
     }
 }
 
+/// Represents the current state of a Sudoku board
+public struct SudokuBoard: Codable {
+    public var grid: [[Int]]
+    
+    public init(grid: [[Int]]) {
+        self.grid = grid
+    }
+    
+    /// Create a sample board for testing
+    public static func createSampleBoard() -> SudokuBoard {
+        let grid: [[Int]] = [
+            [5, 3, 0, 0, 7, 0, 0, 0, 0],
+            [6, 0, 0, 1, 9, 5, 0, 0, 0],
+            [0, 9, 8, 0, 0, 0, 0, 6, 0],
+            [8, 0, 0, 0, 6, 0, 0, 0, 3],
+            [4, 0, 0, 8, 0, 3, 0, 0, 1],
+            [7, 0, 0, 0, 2, 0, 0, 0, 6],
+            [0, 6, 0, 0, 0, 0, 2, 8, 0],
+            [0, 0, 0, 4, 1, 9, 0, 0, 5],
+            [0, 0, 0, 0, 8, 0, 0, 7, 9]
+        ]
+        return SudokuBoard(grid: grid)
+    }
+}
+
 /// Represents a complete game session
 public struct GameSession: Codable, Identifiable {
-    public let id: UUID
-    public let puzzle: SudokuPuzzle
+    public var id: String
+    public var difficulty: Difficulty
     public var startTime: Date
     public var endTime: Date?
     public var tapEvents: [TapEvent]
     public var isCompleted: Bool
+    public var initialBoard: SudokuBoard
+    public var currentBoard: SudokuBoard
     
-    public init(puzzle: SudokuPuzzle) {
-        self.id = UUID()
-        self.puzzle = puzzle
-        self.startTime = Date()
+    public init(id: String, difficulty: Difficulty, startTime: Date, initialBoard: SudokuBoard) {
+        self.id = id
+        self.difficulty = difficulty
+        self.startTime = startTime
         self.endTime = nil
         self.tapEvents = []
         self.isCompleted = false
+        self.initialBoard = initialBoard
+        self.currentBoard = initialBoard
     }
     
     public mutating func addTapEvent(_ event: TapEvent) {

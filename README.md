@@ -5,7 +5,8 @@ A comprehensive Sudoku-based iOS app that analyzes gameplay telemetry to generat
 ## Project Status
 
 ✅ **Milestone 1 Complete**: Project skeleton with all core modules scaffolded  
-🚀 **Next**: GitHub Actions automated builds + unit tests
+✅ **Development Environment**: Now running natively on macOS  
+🚀 **Next**: Implement core telemetry and analytics features
 
 ## Tech Stack
 
@@ -47,8 +48,60 @@ sudoku-insights/
 
 ### Prerequisites
 
-- Git
-- GitHub account
+- **macOS 14.0+** or **iOS 17.0+**
+- **Xcode 15.0+** with Swift 5.9
+- **Swift Package Manager** (included with Xcode)
+
+### Running the App
+
+To test the Sudoku Insights UI on macOS:
+
+```bash
+# Build the project
+swift build
+
+# Run the macOS app
+swift run SudokuInsightsApp
+```
+
+This will launch a native macOS window with three main views:
+
+1. **Game Board** - Interactive 9×9 Sudoku grid
+   - Click cells to select them
+   - Use number buttons (1-9) to fill cells
+   - Click "Clear" to erase selected cell
+   - All interactions are tracked as telemetry events
+
+2. **Dashboard** - Real-time analytics
+   - Total taps counter
+   - Session duration
+   - Average hesitation time
+   - Interactive heatmap showing tap distribution
+
+3. **Reports** - Detailed cognitive analysis
+   - Session overview
+   - Performance metrics
+   - Cognitive pattern detection
+   - Personalized recommendations
+
+### Testing the Analytics
+
+1. Start the app and select cells on the game board
+2. Enter some numbers and observe the tap count increase
+3. Switch to the Dashboard view to see the heatmap update
+4. Navigate to Reports to see detailed analytics
+
+All gameplay is automatically recorded and analyzed in real-time.
+
+### Prerequisites (original)
+
+- **macOS 14.0+** (Sonoma or later)
+- **Xcode 15.0+** (required for iOS development and XCTest)
+  - Download from the Mac App Store
+  - After installation, run: `sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer`
+- **Git**
+
+> **Note**: Command Line Tools alone are insufficient for iOS development. Full Xcode is required for XCTest framework and iOS simulators.
 
 ### Development Workflow
 
@@ -59,30 +112,26 @@ sudoku-insights/
    cd sudoku-insights
    ```
 
-2. **Build locally** (requires macOS):
+2. **Build the project**:
 
    ```bash
    swift build
    ```
 
-3. **Run tests** (requires macOS):
+3. **Run tests**:
 
    ```bash
    swift test
    ```
 
-4. **Open in Xcode** (for iOS development):
+4. **Open in Xcode** (recommended for iOS development):
    ```bash
    open Package.swift
    ```
 
-### Building on Windows
+### Continuous Integration
 
-Since iOS development requires macOS, use **GitHub Actions** for automated builds:
-
-1. Push your changes to the `main` or `develop` branch
-2. GitHub Actions automatically builds and tests on macOS
-3. View results at: `https://github.com/sbivins94/sudoku-insights/actions`
+GitHub Actions automatically builds and tests on every push to `main` or `develop` branches. View build status at: `https://github.com/sbivins94/sudoku-insights/actions`
 
 ## Milestones
 

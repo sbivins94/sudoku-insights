@@ -12,6 +12,10 @@ let package = Package(
             name: "SudokuInsights",
             targets: ["SudokuInsights"]
         ),
+        .executable(
+            name: "SudokuInsightsApp",
+            targets: ["SudokuInsightsApp"]
+        ),
     ],
     dependencies: [
         // Temporarily removed SwiftSudokuSolver - repository doesn't exist
@@ -24,6 +28,11 @@ let package = Package(
                 // .product(name: "SwiftSudokuSolver", package: "SwiftSudokuSolver")
             ],
             path: "Sources/SudokuInsights"
+        ),
+        .executableTarget(
+            name: "SudokuInsightsApp",
+            dependencies: ["SudokuInsights"],
+            path: "Sources/SudokuInsightsApp"
         ),
         .testTarget(
             name: "SudokuInsightsTests",

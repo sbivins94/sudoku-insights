@@ -3,10 +3,10 @@ import Foundation
 /// Records all tap events for a session
 public class TelemetryRecorder {
     private var events: [TapEvent] = []
-    private let sessionID: UUID
+    private let sessionID: String
     private let startTime: Date
     
-    public init(sessionID: UUID) {
+    public init(sessionID: String) {
         self.sessionID = sessionID
         self.startTime = Date()
     }

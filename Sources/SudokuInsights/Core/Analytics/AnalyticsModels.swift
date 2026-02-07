@@ -4,7 +4,7 @@ import Foundation
 public enum StrategyType: String, Codable {
     case scanner           // Many cell taps with few inputs
     case candidateBuilder  // Note-mode heavy
-    case brutForcer        // High error rate early
+    case bruteForcer        // High error rate early
     case logicalSolver     // Low error rate, consistent pace
 }
 
@@ -24,7 +24,7 @@ public struct StrategyProfile: Codable {
 /// Analytics report for a completed game session
 public struct AnalyticsReport: Codable, Identifiable {
     public let id: UUID
-    public let sessionID: UUID
+    public let sessionID: String
     public let difficulty: Difficulty
     public let totalMoves: Int
     public let timeToSolve: TimeInterval?
@@ -34,7 +34,7 @@ public struct AnalyticsReport: Codable, Identifiable {
     public let generatedAt: Date
     
     public init(
-        sessionID: UUID,
+        sessionID: String,
         difficulty: Difficulty,
         totalMoves: Int,
         timeToSolve: TimeInterval?,
