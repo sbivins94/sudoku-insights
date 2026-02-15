@@ -15,6 +15,7 @@ public struct GameBoardView {
 // MARK: - GameBoard ViewModel
 public class GameBoardViewModel {
     public var currentSession: GameSession
+    public var selectedCell: (row: Int, col: Int)?
     private let telemetryRecorder: TelemetryRecorder
     private let analyticsEngine: AnalyticsEngine
     
@@ -26,6 +27,7 @@ public class GameBoardViewModel {
     
     /// Handle user tap on a cell
     public func didTapCell(row: Int, col: Int) {
+        selectedCell = (row, col)
         telemetryRecorder.recordTap(row: row, col: col, action: .selectCell)
     }
     
