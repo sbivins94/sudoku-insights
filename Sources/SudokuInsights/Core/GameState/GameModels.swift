@@ -57,9 +57,30 @@ public struct SudokuPuzzle: Codable, Identifiable {
 /// Represents the current state of a Sudoku board
 public struct SudokuBoard: Codable {
     public var grid: [[Int]]
+    public var notes: [[Set<Int>]]  // Candidate notes for each cell
     
     public init(grid: [[Int]]) {
         self.grid = grid
+        // Initialize empty notes for all cells
+        self.notes = Array(repeating: Array(repeating: Set<Int>(), count: 9), count: 9)
+    }
+    
+    /// Toggle a note in a specific cell
+    public mutating func toggleNote(row: Int, col: Int, value: Int) {
+        guard row >= 0 && row < 9 && col >= 0 && col < 9 else { return }
+        guard value >= 1 && value <= 9 else { return }
+        
+        if notes[row][col].contains(value) {
+            notes[row][col].remove(value)
+        } else {
+            notes[row][col].insert(value)
+        }
+    }
+    
+    /// Clear all notes from a specific cell
+    public mutating func clearNotes(row: Int, col: Int) {
+        guard row >= 0 && row < 9 && col >= 0 && col < 9 else { return }
+        notes[row][col].removeAll()
     }
     
     /// Create a sample board for testing
