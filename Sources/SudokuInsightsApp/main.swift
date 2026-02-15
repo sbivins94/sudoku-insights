@@ -1,14 +1,24 @@
 import SwiftUI
 import SudokuInsights
+import AppKit
 
 @main
 struct SudokuInsightsApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    
     var body: some Scene {
         WindowGroup {
             ContentView()
         }
         .windowStyle(.automatic)
         .defaultSize(width: 800, height: 900)
+    }
+}
+
+class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
     }
 }
 
@@ -51,6 +61,7 @@ class AppViewModel: ObservableObject {
     @Published var selectedView: ViewSelection = .gameBoard
     @Published var currentSession: GameSession
     @Published var boardViewModel: GameBoardViewModel
+    @Published var isNoteTakingMode: Bool = false
     
     init() {
         // Create a sample game session
@@ -74,6 +85,25 @@ class AppViewModel: ObservableObject {
         self.currentSession = session
         self.boardViewModel = GameBoardViewModel(session: session)
     }
+    
+    func handleKeyPress(_ value: Int) {
+        guard let cell = boardViewModel.selectedCell else { return }
+        
+        if isNoteTakingMode {
+            currentSession.currentBoard.toggleNote(row: cell.row, col: cell.col, value: value)
+        } else {
+            boardViewModel.didEnterValue(value, at: cell.row, col: cell.col)
+            currentSession.currentBoard.grid[cell.row][cell.col] = value
+            // Clear notes when value is entered
+            currentSession.currentBoard.clearNotes(row: cell.row, col: cell.col)
+        }
+    }
+    
+    func handleDelete() {
+        guard let cell = boardViewModel.selectedCell else { return }
+        boardViewModel.didEraseCell(row: cell.row, col: cell.col)
+        currentSession.currentBoard.grid[cell.row][cell.col] = 0
+    }
 }
 
 // MARK: - Game Board View
@@ -88,18 +118,24 @@ struct GameBoardContentView: View {
                 .padding()
             
             // 9x9 Sudoku Grid
-            VStack(spacing: 2) {
+            VStack(spacing: 0) {
                 ForEach(0..<9) { row in
-                    HStack(spacing: 2) {
+                    HStack(spacing: 0) {
                         ForEach(0..<9) { col in
                             CellView(
                                 value: viewModel.currentSession.currentBoard.grid[row][col],
+                                notes: viewModel.currentSession.currentBoard.notes[row][col],
                                 isSelected: selectedCell?.row == row && selectedCell?.col == col,
-                                isInitial: viewModel.currentSession.initialBoard.grid[row][col] != 0
+                                isInitial: viewModel.currentSession.initialBoard.grid[row][col] != 0,
+                                isAxisHighlighted: isAxisHighlighted(row: row, col: col),
+                                isNumberHighlighted: isNumberHighlighted(row: row, col: col),
+                                row: row,
+                                col: col
                             )
                             .onTapGesture {
                                 selectedCell = (row, col)
                                 viewModel.boardViewModel.didTapCell(row: row, col: col)
+                                viewModel.boardViewModel.selectedCell = (row, col)
                             }
                         }
                     }
@@ -108,34 +144,34 @@ struct GameBoardContentView: View {
             .padding()
             .background(Color.gray.opacity(0.2))
             .cornerRadius(10)
-            
-            // Number input buttons
-            HStack(spacing: 10) {
-                ForEach(1...9, id: \.self) { number in
-                    Button(action: {
-                        if let cell = selectedCell {
-                            viewModel.boardViewModel.didEnterValue(number, at: cell.row, col: cell.col)
-                            viewModel.currentSession.currentBoard.grid[cell.row][cell.col] = number
-                        }
-                    }) {
-                        Text("\(number)")
-                            .font(.title2)
-                            .frame(width: 50, height: 50)
-                            .background(Color.blue)
-                            .foregroundColor(.white)
-                            .cornerRadius(8)
-                    }
+            .onAppear {
+                // Set up keyboard monitoring
+                NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                    self.handleKeyDown(event)
+                    return event
                 }
-                
-                Button("Clear") {
-                    if let cell = selectedCell {
-                        viewModel.boardViewModel.didEraseCell(row: cell.row, col: cell.col)
-                        viewModel.currentSession.currentBoard.grid[cell.row][cell.col] = 0
-                    }
-                }
-                .buttonStyle(.borderedProminent)
             }
-            .padding()
+            
+            // Note-taking toggle button (below grid, aligned right)
+            HStack {
+                Spacer()
+                Button(action: {
+                    viewModel.isNoteTakingMode.toggle()
+                }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: viewModel.isNoteTakingMode ? "pencil.circle.fill" : "pencil.circle")
+                        Text(viewModel.isNoteTakingMode ? "Notes ON" : "Notes OFF")
+                            .font(.callout)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(viewModel.isNoteTakingMode ? Color.blue : Color.gray.opacity(0.3))
+                    .foregroundColor(viewModel.isNoteTakingMode ? .white : .primary)
+                    .cornerRadius(8)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal)
             
             // Session info
             VStack(alignment: .leading, spacing: 8) {
@@ -145,6 +181,14 @@ struct GameBoardContentView: View {
                     .font(.caption)
                 Text("Tap Events: \(viewModel.currentSession.tapEvents.count)")
                     .font(.caption)
+                if viewModel.isNoteTakingMode {
+                    Text("Mode: Note Taking")
+                        .font(.caption)
+                        .foregroundColor(.blue)
+                } else {
+                    Text("Mode: Number Entry")
+                        .font(.caption)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding()
@@ -156,21 +200,121 @@ struct GameBoardContentView: View {
         }
         .padding()
     }
+    
+    private func handleKeyDown(_ event: NSEvent) {
+        guard selectedCell != nil else { return }
+        
+        // Handle number keys 1-9
+        if let chars = event.charactersIgnoringModifiers,
+           let char = chars.first,
+           let num = Int(String(char)),
+           num >= 1 && num <= 9 {
+            viewModel.handleKeyPress(num)
+            return
+        }
+        
+        // Handle delete/backspace
+        if event.keyCode == 51 || event.keyCode == 117 { // Delete or Forward Delete
+            viewModel.handleDelete()
+            return
+        }
+    }
+    
+    private func isAxisHighlighted(row: Int, col: Int) -> Bool {
+        guard let selected = selectedCell else { return false }
+        return row == selected.row || col == selected.col
+    }
+    
+    private func isNumberHighlighted(row: Int, col: Int) -> Bool {
+        guard let selected = selectedCell else { return false }
+        let selectedValue = viewModel.currentSession.currentBoard.grid[selected.row][selected.col]
+        let cellValue = viewModel.currentSession.currentBoard.grid[row][col]
+        return selectedValue != 0 && cellValue == selectedValue
+    }
 }
 
 struct CellView: View {
     let value: Int
+    let notes: Set<Int>
     let isSelected: Bool
     let isInitial: Bool
+    let isAxisHighlighted: Bool
+    let isNumberHighlighted: Bool
+    let row: Int
+    let col: Int
     
     var body: some View {
-        Text(value == 0 ? "" : "\(value)")
-            .font(.title2)
-            .fontWeight(isInitial ? .bold : .regular)
-            .frame(width: 50, height: 50)
-            .background(isSelected ? Color.blue.opacity(0.3) : (isInitial ? Color.gray.opacity(0.2) : Color.white))
-            .border(Color.black, width: 1)
-            .foregroundColor(isInitial ? .black : .blue)
+        ZStack {
+            // Background color based on highlighting
+            backgroundColor
+            
+            // Content: either value or notes
+            if value == 0 && !notes.isEmpty {
+                NotesGridView(notes: notes)
+            } else if value != 0 {
+                Text("\(value)")
+                    .font(.title2)
+                    .fontWeight(isInitial ? .bold : .regular)
+                    .foregroundColor(isInitial ? .black : .blue)
+            }
+        }
+        .frame(width: 50, height: 50)
+        .border(Color.gray.opacity(0.4), width: 0.5)
+        .overlay(
+            Group {
+                // Bold right border for 3x3 grid (cols 2, 5)
+                if col == 2 || col == 5 {
+                    Rectangle()
+                        .fill(Color.black)
+                        .frame(width: 4)
+                        .offset(x: 25)
+                }
+                
+                // Bold bottom border for 3x3 grid (rows 2, 5)
+                if row == 2 || row == 5 {
+                    Rectangle()
+                        .fill(Color.black)
+                        .frame(height: 4)
+                        .offset(y: 25)
+                }
+            }
+        )
+    }
+    
+    private var backgroundColor: Color {
+        if isSelected {
+            return Color.blue.opacity(0.4)
+        } else if isNumberHighlighted {
+            return Color.yellow.opacity(0.3)
+        } else if isAxisHighlighted {
+            return Color.blue.opacity(0.15)
+        } else if isInitial {
+            return Color.gray.opacity(0.2)
+        } else {
+            return Color.white
+        }
+    }
+}
+
+// MARK: - Notes Grid View
+struct NotesGridView: View {
+    let notes: Set<Int>
+    
+    var body: some View {
+        VStack(spacing: 0) {
+            ForEach(0..<3) { row in
+                HStack(spacing: 0) {
+                    ForEach(0..<3) { col in
+                        let num = row * 3 + col + 1
+                        Text(notes.contains(num) ? "\(num)" : "")
+                            .font(.system(size: 10))
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .foregroundColor(.gray)
+                    }
+                }
+            }
+        }
+        .padding(2)
     }
 }
 
