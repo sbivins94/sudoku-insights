@@ -3,18 +3,30 @@ import XCTest
 
 final class SudokuInsightsTests: XCTestCase {
     
+    // MARK: - Game Session Tests
+    
     func testGameSessionCreation() {
-        let puzzle = SudokuEngine.generatePuzzle(difficulty: .easy)
-        let session = GameSession(puzzle: puzzle)
+        let board = SudokuBoard.createSampleBoard()
+        let session = GameSession(
+            id: UUID().uuidString,
+            difficulty: .medium,
+            startTime: Date(),
+            initialBoard: board
+        )
         
-        XCTAssertNotNil(session.id)
+        XCTAssertFalse(session.id.isEmpty)
         XCTAssertEqual(session.tapEvents.count, 0)
         XCTAssertFalse(session.isCompleted)
     }
     
     func testTapEventRecording() {
-        let puzzle = SudokuEngine.generatePuzzle()
-        var session = GameSession(puzzle: puzzle)
+        let board = SudokuBoard.createSampleBoard()
+        var session = GameSession(
+            id: UUID().uuidString,
+            difficulty: .medium,
+            startTime: Date(),
+            initialBoard: board
+        )
         
         let event = TapEvent(timestamp: 0, row: 0, col: 0, action: .selectCell)
         session.addTapEvent(event)
@@ -23,14 +35,112 @@ final class SudokuInsightsTests: XCTestCase {
         XCTAssertEqual(session.tapEvents[0].action, .selectCell)
     }
     
+    // MARK: - Notes Functionality Tests
+    
+    func testNotesToggle() {
+        var board = SudokuBoard.createSampleBoard()
+        
+        // Initially empty
+        XCTAssertTrue(board.notes[0][0].isEmpty)
+        
+        // Add note
+        board.toggleNote(row: 0, col: 0, value: 5)
+        XCTAssertTrue(board.notes[0][0].contains(5))
+        
+        // Toggle again to remove
+        board.toggleNote(row: 0, col: 0, value: 5)
+        XCTAssertFalse(board.notes[0][0].contains(5))
+    }
+    
+    func testMultipleNotes() {
+        var board = SudokuBoard.createSampleBoard()
+        
+        board.toggleNote(row: 2, col: 2, value: 1)
+        board.toggleNote(row: 2, col: 2, value: 4)
+        board.toggleNote(row: 2, col: 2, value: 7)
+        
+        XCTAssertEqual(board.notes[2][2].count, 3)
+        XCTAssertTrue(board.notes[2][2].contains(1))
+        XCTAssertTrue(board.notes[2][2].contains(4))
+        XCTAssertTrue(board.notes[2][2].contains(7))
+    }
+    
+    func testClearNotes() {
+        var board = SudokuBoard.createSampleBoard()
+        
+        board.toggleNote(row: 1, col: 1, value: 2)
+        board.toggleNote(row: 1, col: 1, value: 3)
+        board.toggleNote(row: 1, col: 1, value: 4)
+        
+        XCTAssertEqual(board.notes[1][1].count, 3)
+        
+        board.clearNotes(row: 1, col: 1)
+        XCTAssertTrue(board.notes[1][1].isEmpty)
+    }
+    
+    func testNotesOutOfBounds() {
+        var board = SudokuBoard.createSampleBoard()
+        
+        // Should not crash
+        board.toggleNote(row: -1, col: 0, value: 5)
+        board.toggleNote(row: 0, col: 10, value: 5)
+        board.toggleNote(row: 5, col: 5, value: 10)
+        board.clearNotes(row: -1, col: -1)
+    }
+    
+    // MARK: - Analytics Engine Tests
+    
     func testAnalyticsEngineInitialization() {
-        let puzzle = SudokuEngine.generatePuzzle()
-        let session = GameSession(puzzle: puzzle)
+        let board = SudokuBoard.createSampleBoard()
+        let session = GameSession(
+            id: UUID().uuidString,
+            difficulty: .medium,
+            startTime: Date(),
+            initialBoard: board
+        )
         let engine = AnalyticsEngine(session: session)
         
         let report = engine.generateReport()
-        XCTAssertEqual(report.difficulty, puzzle.difficulty)
+        XCTAssertEqual(report.difficulty, .medium)
         XCTAssertEqual(report.totalMoves, 0)
+    }
+    
+    func testSessionMetrics() {
+        let board = SudokuBoard.createSampleBoard()
+        var session = GameSession(
+            id: UUID().uuidString,
+            difficulty: .medium,
+            startTime: Date(),
+            initialBoard: board
+        )
+        
+        // Add some tap events
+        session.addTapEvent(TapEvent(timestamp: 0, row: 0, col: 0, action: .enterValue))
+        session.addTapEvent(TapEvent(timestamp: 1, row: 1, col: 1, action: .enterValue))
+        
+        let engine = AnalyticsEngine(session: session)
+        let metrics = engine.generateSessionMetrics()
+        
+        XCTAssertEqual(metrics.totalTaps, 2)
+        XCTAssertGreaterThanOrEqual(metrics.elapsedTime, 0)
+    }
+    
+    func testDetailedReport() {
+        let board = SudokuBoard.createSampleBoard()
+        let session = GameSession(
+            id: UUID().uuidString,
+            difficulty: .hard,
+            startTime: Date(),
+            initialBoard: board
+        )
+        
+        let engine = AnalyticsEngine(session: session)
+        let report = engine.generateDetailedReport()
+        
+        XCTAssertFalse(report.sessionOverview.isEmpty)
+        XCTAssertFalse(report.performanceMetrics.isEmpty)
+        XCTAssertFalse(report.cognitivePatterns.isEmpty)
+        XCTAssertFalse(report.recommendations.isEmpty)
     }
     
     func testSudokuValidation() {
@@ -46,8 +156,13 @@ final class SudokuInsightsTests: XCTestCase {
     }
     
     func testHeatmapGeneration() {
-        let puzzle = SudokuEngine.generatePuzzle()
-        var session = GameSession(puzzle: puzzle)
+        let board = SudokuBoard.createSampleBoard()
+        var session = GameSession(
+            id: UUID().uuidString,
+            difficulty: .medium,
+            startTime: Date(),
+            initialBoard: board
+        )
         
         session.addTapEvent(TapEvent(timestamp: 0, row: 0, col: 0, action: .selectCell))
         session.addTapEvent(TapEvent(timestamp: 1, row: 0, col: 0, action: .selectCell))
