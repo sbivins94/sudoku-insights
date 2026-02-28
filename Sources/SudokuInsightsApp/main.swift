@@ -1,6 +1,7 @@
 import SwiftUI
 import SudokuInsights
 import AppKit
+import Combine
 
 @main
 struct SudokuInsightsApp: App {
@@ -62,6 +63,20 @@ class AppViewModel: ObservableObject {
     @Published var currentSession: GameSession
     @Published var boardViewModel: GameBoardViewModel
     @Published var isNoteTakingMode: Bool = false
+    @Published var invalidCells: Set<String> = [] // "row,col" format
+    @Published var correctCells: Set<String> = [] // "row,col" format for correct entries
+    @Published var availableCandidates: Set<Int> = Set(1...9) // Numbers not yet fully placed
+    @Published var elapsedTime: TimeInterval = 0
+    @Published var errorCount: Int = 0
+    @Published var isGameComplete: Bool = false
+    
+    private var timerCancellable: AnyCancellable?
+    
+    var formattedTime: String {
+        let minutes = Int(elapsedTime) / 60
+        let seconds = Int(elapsedTime) % 60
+        return String(format: "%02d:%02d", minutes, seconds)
+    }
     
     init() {
         // Create a sample game session
@@ -69,10 +84,12 @@ class AppViewModel: ObservableObject {
             id: UUID().uuidString,
             difficulty: .medium,
             startTime: Date(),
-            initialBoard: SudokuBoard.createSampleBoard()
+            initialBoard: SudokuBoard.createSampleBoard(),
+            solution: SudokuBoard.getSampleBoardSolution()
         )
         self.currentSession = session
         self.boardViewModel = GameBoardViewModel(session: session)
+        startTimer()
     }
     
     func startNewGame(difficulty: Difficulty) {
@@ -80,22 +97,58 @@ class AppViewModel: ObservableObject {
             id: UUID().uuidString,
             difficulty: difficulty,
             startTime: Date(),
-            initialBoard: SudokuBoard.createSampleBoard()
+            initialBoard: SudokuBoard.createSampleBoard(),
+            solution: SudokuBoard.getSampleBoardSolution()
         )
         self.currentSession = session
         self.boardViewModel = GameBoardViewModel(session: session)
+        self.elapsedTime = 0
+        self.errorCount = 0
+        self.isGameComplete = false
+        self.invalidCells.removeAll()
+        self.correctCells.removeAll()
+        self.availableCandidates = Set(1...9)
+        startTimer()
+    }
+    
+    private func startTimer() {
+        timerCancellable?.cancel()
+        timerCancellable = Timer.publish(every: 1, on: .main, in: .common)
+            .autoconnect()
+            .sink { [weak self] _ in
+                guard let self = self, !self.isGameComplete else { return }
+                self.elapsedTime += 1
+            }
+    }
+    
+    private func stopTimer() {
+        timerCancellable?.cancel()
+        timerCancellable = nil
     }
     
     func handleKeyPress(_ value: Int) {
         guard let cell = boardViewModel.selectedCell else { return }
+        guard !isGameComplete else { return }
         
         if isNoteTakingMode {
             currentSession.currentBoard.toggleNote(row: cell.row, col: cell.col, value: value)
         } else {
+            // Track errors before placing the value
+            if currentSession.solution[cell.row][cell.col] != value {
+                errorCount += 1
+            }
             boardViewModel.didEnterValue(value, at: cell.row, col: cell.col)
             currentSession.currentBoard.grid[cell.row][cell.col] = value
             // Clear notes when value is entered
             currentSession.currentBoard.clearNotes(row: cell.row, col: cell.col)
+            // Validate the entire board
+            validateBoard()
+            // If correct, clear related notes
+            if correctCells.contains("\(cell.row),\(cell.col)") {
+                clearRelatedNotes(row: cell.row, col: cell.col, value: value)
+            }
+            // Check for game completion
+            checkGameCompletion()
         }
     }
     
@@ -103,6 +156,123 @@ class AppViewModel: ObservableObject {
         guard let cell = boardViewModel.selectedCell else { return }
         boardViewModel.didEraseCell(row: cell.row, col: cell.col)
         currentSession.currentBoard.grid[cell.row][cell.col] = 0
+        // Validate the board after deletion
+        validateBoard()
+    }
+    
+    func validateBoard() {
+        invalidCells.removeAll()
+        correctCells.removeAll()
+        let grid = currentSession.currentBoard.grid
+        let initialGrid = currentSession.initialBoard.grid
+        let solution = currentSession.solution
+        
+        for row in 0..<9 {
+            for col in 0..<9 {
+                // Skip given/initial numbers
+                if initialGrid[row][col] != 0 {
+                    continue
+                }
+                
+                let value = grid[row][col]
+                if value != 0 {
+                    // Check if this value matches the solution
+                    if solution[row][col] == value {
+                        correctCells.insert("\(row),\(col)")
+                    } else {
+                        // Check if it's just invalid (violates constraints)
+                        if !SudokuEngine.isValidMove(grid: grid, row: row, col: col, value: value) {
+                            invalidCells.insert("\(row),\(col)")
+                        }
+                    }
+                }
+            }
+        }
+        // Update candidates after validation
+        updateAvailableCandidates()
+    }
+    
+    private func clearRelatedNotes(row: Int, col: Int, value: Int) {
+        // Clear notes containing this value from the same row
+        for c in 0..<9 {
+            currentSession.currentBoard.notes[row][c].remove(value)
+        }
+        
+        // Clear notes containing this value from the same column
+        for r in 0..<9 {
+            currentSession.currentBoard.notes[r][col].remove(value)
+        }
+        
+        // Clear notes containing this value from the same 3x3 box
+        let boxRow = (row / 3) * 3
+        let boxCol = (col / 3) * 3
+        for r in boxRow..<(boxRow + 3) {
+            for c in boxCol..<(boxCol + 3) {
+                currentSession.currentBoard.notes[r][c].remove(value)
+            }
+        }
+    }
+    
+    private func updateAvailableCandidates() {
+        availableCandidates = Set(1...9)
+        let grid = currentSession.currentBoard.grid
+        let solution = currentSession.solution
+        
+        // Count all cells where grid matches solution (both givens and user entries)
+        var numberCounts: [Int: Int] = [:]
+        for row in 0..<9 {
+            for col in 0..<9 {
+                let value = grid[row][col]
+                if value != 0 && value == solution[row][col] {
+                    numberCounts[value, default: 0] += 1
+                }
+            }
+        }
+        
+        // Remove numbers that have been placed 9 times (all instances correct)
+        for number in 1...9 {
+            if let count = numberCounts[number], count >= 9 {
+                availableCandidates.remove(number)
+            }
+        }
+    }
+    
+    func checkGameCompletion() {
+        let grid = currentSession.currentBoard.grid
+        let solution = currentSession.solution
+        
+        for row in 0..<9 {
+            for col in 0..<9 {
+                if grid[row][col] != solution[row][col] {
+                    return
+                }
+            }
+        }
+        
+        // Game is complete!
+        isGameComplete = true
+        stopTimer()
+        saveCompletionTime()
+    }
+    
+    private func saveCompletionTime() {
+        let key = "completionTimes_\(currentSession.difficulty.rawValue)"
+        var times = UserDefaults.standard.array(forKey: key) as? [Double] ?? []
+        times.append(elapsedTime)
+        UserDefaults.standard.set(times, forKey: key)
+    }
+    
+    func averageTimeForDifficulty() -> Double? {
+        let key = "completionTimes_\(currentSession.difficulty.rawValue)"
+        let times = UserDefaults.standard.array(forKey: key) as? [Double] ?? []
+        guard !times.isEmpty else { return nil }
+        return times.reduce(0, +) / Double(times.count)
+    }
+    
+    func formattedTimeInterval(_ interval: TimeInterval) -> String {
+        let minutes = Int(interval) / 60
+        let seconds = Int(interval) % 60
+        return String(format: "%02d:%02d", minutes, seconds)
     }
 }
 
@@ -112,10 +282,47 @@ struct GameBoardContentView: View {
     @State private var selectedCell: (row: Int, col: Int)?
     
     var body: some View {
-        VStack(spacing: 20) {
-            Text("Sudoku Game Board")
-                .font(.largeTitle)
-                .padding()
+        ZStack {
+            VStack(spacing: 20) {
+                // Header with title and timer
+                HStack {
+                    Text("Sudoku Game Board")
+                        .font(.largeTitle)
+                    Spacer()
+                    // Debug: Auto-finish button
+                    Button(action: {
+                        for row in 0..<9 {
+                            for col in 0..<9 {
+                                viewModel.currentSession.currentBoard.grid[row][col] = viewModel.currentSession.solution[row][col]
+                            }
+                        }
+                        viewModel.validateBoard()
+                        viewModel.checkGameCompletion()
+                    }) {
+                        Text("⚡ Auto-Finish")
+                            .font(.caption2)
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(Color.orange)
+                            .cornerRadius(6)
+                    }
+                    .buttonStyle(.plain)
+                    // Timer
+                    HStack(spacing: 4) {
+                        Image(systemName: "clock")
+                            .foregroundColor(.secondary)
+                        Text(viewModel.formattedTime)
+                            .font(.title2)
+                            .fontWeight(.medium)
+                            .monospacedDigit()
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(Color.gray.opacity(0.1))
+                    .cornerRadius(8)
+                }
+                .padding(.horizontal)
             
             // 9x9 Sudoku Grid
             VStack(spacing: 0) {
@@ -129,6 +336,9 @@ struct GameBoardContentView: View {
                                 isInitial: viewModel.currentSession.initialBoard.grid[row][col] != 0,
                                 isAxisHighlighted: isAxisHighlighted(row: row, col: col),
                                 isNumberHighlighted: isNumberHighlighted(row: row, col: col),
+                                isBoxHighlighted: isBoxHighlighted(row: row, col: col),
+                                isInvalid: viewModel.invalidCells.contains("\(row),\(col)"),
+                                isCorrect: viewModel.correctCells.contains("\(row),\(col)"),
                                 row: row,
                                 col: col
                             )
@@ -173,6 +383,29 @@ struct GameBoardContentView: View {
             }
             .padding(.horizontal)
             
+            // Candidates tracker
+            HStack(spacing: 8) {
+                ForEach(1...9, id: \.self) { num in
+                    if viewModel.availableCandidates.contains(num) {
+                        Text("\(num)")
+                            .font(.callout)
+                            .fontWeight(.semibold)
+                            .frame(width: 32, height: 32)
+                            .background(Color.blue.opacity(0.15))
+                            .cornerRadius(6)
+                    } else {
+                        Text("\(num)")
+                            .font(.callout)
+                            .foregroundColor(.gray.opacity(0.3))
+                            .strikethrough()
+                            .frame(width: 32, height: 32)
+                            .background(Color.gray.opacity(0.05))
+                            .cornerRadius(6)
+                    }
+                }
+            }
+            .padding(.horizontal)
+            
             // Session info
             VStack(alignment: .leading, spacing: 8) {
                 Text("Session ID: \(viewModel.currentSession.id.prefix(8))...")
@@ -199,6 +432,12 @@ struct GameBoardContentView: View {
             Spacer()
         }
         .padding()
+        
+        // Game Complete Overlay
+        if viewModel.isGameComplete {
+            GameCompleteOverlay(viewModel: viewModel)
+        }
+        } // ZStack
     }
     
     private func handleKeyDown(_ event: NSEvent) {
@@ -231,6 +470,13 @@ struct GameBoardContentView: View {
         let cellValue = viewModel.currentSession.currentBoard.grid[row][col]
         return selectedValue != 0 && cellValue == selectedValue
     }
+    
+    private func isBoxHighlighted(row: Int, col: Int) -> Bool {
+        guard let selected = selectedCell else { return false }
+        let boxRow = selected.row / 3
+        let boxCol = selected.col / 3
+        return (row / 3 == boxRow) && (col / 3 == boxCol)
+    }
 }
 
 struct CellView: View {
@@ -240,13 +486,27 @@ struct CellView: View {
     let isInitial: Bool
     let isAxisHighlighted: Bool
     let isNumberHighlighted: Bool
+    let isBoxHighlighted: Bool
+    let isInvalid: Bool
+    let isCorrect: Bool
     let row: Int
     let col: Int
+    
+    @State private var isAnimating = false
     
     var body: some View {
         ZStack {
             // Background color based on highlighting
             backgroundColor
+            
+            // Sparkle animation overlay for correct entries
+            if isCorrect && isAnimating {
+                Circle()
+                    .fill(Color.blue.opacity(0.5))
+                    .scaleEffect(2)
+                    .opacity(0)
+                    .animation(.easeOut(duration: 1.5), value: isAnimating)
+            }
             
             // Content: either value or notes
             if value == 0 && !notes.isEmpty {
@@ -254,8 +514,12 @@ struct CellView: View {
             } else if value != 0 {
                 Text("\(value)")
                     .font(.title2)
-                    .fontWeight(isInitial ? .bold : .regular)
-                    .foregroundColor(isInitial ? .black : .blue)
+                    .fontWeight(
+                        isCorrect ? .bold : (isInitial ? .bold : .regular)
+                    )
+                    .foregroundColor(
+                        isInvalid ? .red : (isCorrect ? .blue : (isInitial ? .black : .blue))
+                    )
             }
         }
         .frame(width: 50, height: 50)
@@ -279,6 +543,14 @@ struct CellView: View {
                 }
             }
         )
+        .onChange(of: isCorrect) { oldValue, newValue in
+            if newValue && !oldValue {
+                isAnimating = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                    isAnimating = false
+                }
+            }
+        }
     }
     
     private var backgroundColor: Color {
@@ -287,9 +559,11 @@ struct CellView: View {
         } else if isNumberHighlighted {
             return Color.yellow.opacity(0.3)
         } else if isAxisHighlighted {
-            return Color.blue.opacity(0.15)
-        } else if isInitial {
-            return Color.gray.opacity(0.2)
+            // Light beige/olive tone - same as box highlighting
+            return Color(red: 0.96, green: 0.95, blue: 0.90)
+        } else if isBoxHighlighted {
+            // Light beige/olive tone - much lighter and warmer
+            return Color(red: 0.96, green: 0.95, blue: 0.90)
         } else {
             return Color.white
         }
@@ -315,6 +589,196 @@ struct NotesGridView: View {
             }
         }
         .padding(2)
+    }
+}
+
+// MARK: - Confetti Particle
+struct ConfettiPiece: Identifiable {
+    let id = UUID()
+    let color: Color
+    let x: CGFloat
+    let speed: Double
+    let delay: Double
+    let rotation: Double
+    let size: CGFloat
+}
+
+// MARK: - Confetti View
+struct ConfettiView: View {
+    @State private var animate = false
+    
+    let pieces: [ConfettiPiece] = (0..<60).map { _ in
+        ConfettiPiece(
+            color: [Color.red, .blue, .green, .yellow, .orange, .purple, .pink, .mint, .cyan].randomElement()!,
+            x: CGFloat.random(in: -200...200),
+            speed: Double.random(in: 2...4),
+            delay: Double.random(in: 0...1.5),
+            rotation: Double.random(in: 0...360),
+            size: CGFloat.random(in: 6...12)
+        )
+    }
+    
+    var body: some View {
+        ZStack {
+            ForEach(pieces) { piece in
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(piece.color)
+                    .frame(width: piece.size, height: piece.size * 1.4)
+                    .rotationEffect(.degrees(animate ? piece.rotation + 360 : piece.rotation))
+                    .offset(
+                        x: piece.x,
+                        y: animate ? 500 : -100
+                    )
+                    .opacity(animate ? 0 : 1)
+                    .animation(
+                        .easeIn(duration: piece.speed)
+                        .delay(piece.delay),
+                        value: animate
+                    )
+            }
+        }
+        .onAppear {
+            animate = true
+        }
+    }
+}
+
+// MARK: - Game Complete Overlay
+struct GameCompleteOverlay: View {
+    @ObservedObject var viewModel: AppViewModel
+    @State private var showStats = false
+    
+    var body: some View {
+        ZStack {
+            // Semi-transparent background
+            Color.black.opacity(0.4)
+                .ignoresSafeArea()
+                .onTapGesture {} // Block taps through
+            
+            // Confetti
+            ConfettiView()
+            
+            // Stats card
+            VStack(spacing: 20) {
+                Text("🎉")
+                    .font(.system(size: 60))
+                
+                Text("Puzzle Complete!")
+                    .font(.largeTitle)
+                    .fontWeight(.bold)
+                    .foregroundColor(.white)
+                
+                VStack(spacing: 16) {
+                    // Time to complete
+                    HStack(spacing: 12) {
+                        Image(systemName: "clock.fill")
+                            .foregroundColor(.blue)
+                            .frame(width: 20)
+                        Text("Time")
+                            .foregroundColor(.secondary)
+                            .frame(maxWidth: 60, alignment: .leading)
+                        Spacer()
+                        Text(viewModel.formattedTime)
+                            .font(.headline)
+                            .monospacedDigit()
+                            .foregroundColor(.primary)
+                    }
+                    .padding(.bottom, 8)
+                    
+                    Divider()
+                    
+                    // Error count
+                    HStack(spacing: 12) {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundColor(.red)
+                            .frame(width: 20)
+                        Text("Errors")
+                            .foregroundColor(.secondary)
+                            .frame(maxWidth: 60, alignment: .leading)
+                        Spacer()
+                        Text("\(viewModel.errorCount)")
+                            .font(.headline)
+                            .foregroundColor(.primary)
+                    }
+                    .padding(.vertical, 8)
+                    
+                    Divider()
+                    
+                    // Average time comparison
+                    HStack(spacing: 12) {
+                        Image(systemName: "chart.bar.fill")
+                            .foregroundColor(.green)
+                            .frame(width: 20)
+                        Text("Avg Time")
+                            .foregroundColor(.secondary)
+                            .frame(maxWidth: 60, alignment: .leading)
+                        Spacer()
+                        if let avg = viewModel.averageTimeForDifficulty() {
+                            VStack(alignment: .trailing, spacing: 2) {
+                                Text(viewModel.formattedTimeInterval(avg))
+                                    .font(.headline)
+                                    .monospacedDigit()
+                                    .foregroundColor(.primary)
+                                let diff = viewModel.elapsedTime - avg
+                                if diff < 0 {
+                                    Text("\(viewModel.formattedTimeInterval(abs(diff))) faster")
+                                        .font(.caption)
+                                        .foregroundColor(.green)
+                                } else if diff > 0 {
+                                    Text("\(viewModel.formattedTimeInterval(diff)) slower")
+                                        .font(.caption)
+                                        .foregroundColor(.orange)
+                                } else {
+                                    Text("Right on average!")
+                                        .font(.caption)
+                                        .foregroundColor(.blue)
+                                }
+                            }
+                        } else {
+                            VStack(alignment: .trailing, spacing: 2) {
+                                Text("First game!")
+                                    .font(.headline)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                    }
+                    .padding(.top, 8)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(16)
+                .background(Color.gray.opacity(0.05))
+                .cornerRadius(12)
+                
+                // New Game button
+                Button(action: {
+                    viewModel.startNewGame(difficulty: viewModel.currentSession.difficulty)
+                }) {
+                    Text("New Game")
+                        .font(.headline)
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 32)
+                        .padding(.vertical, 12)
+                        .background(Color.blue)
+                        .cornerRadius(10)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(32)
+            .frame(width: 380)
+            .background(
+                RoundedRectangle(cornerRadius: 20)
+                    .fill(Color(NSColor.windowBackgroundColor))
+                    .shadow(radius: 20)
+            )
+            .scaleEffect(showStats ? 1.0 : 0.8)
+            .opacity(showStats ? 1.0 : 0)
+            .animation(.spring(response: 0.5, dampingFraction: 0.7), value: showStats)
+            .onAppear {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    showStats = true
+                }
+            }
+        }
     }
 }
 

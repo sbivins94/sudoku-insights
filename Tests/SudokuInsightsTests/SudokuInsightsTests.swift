@@ -217,4 +217,157 @@ final class SudokuInsightsTests: XCTestCase {
             XCTAssertLessThanOrEqual(candidates.count, 9)
         }
     }
+    
+    // MARK: - Game Session with Solution Tests
+    
+    func testGameSessionWithSolution() {
+        let board = SudokuBoard.createSampleBoard()
+        let solution = SudokuBoard.getSampleBoardSolution()
+        
+        let session = GameSession(
+            id: UUID().uuidString,
+            difficulty: .medium,
+            startTime: Date(),
+            initialBoard: board,
+            solution: solution
+        )
+        
+        XCTAssertNotNil(session.solution)
+        XCTAssertEqual(session.solution.count, 9)
+        XCTAssertEqual(session.solution[0].count, 9)
+    }
+    
+    func testGameSessionDefaultSolution() {
+        let board = SudokuBoard.createSampleBoard()
+        let session = GameSession(
+            id: UUID().uuidString,
+            difficulty: .medium,
+            startTime: Date(),
+            initialBoard: board
+        )
+        
+        // Should have a default empty solution
+        XCTAssertEqual(session.solution.count, 9)
+        for row in 0..<9 {
+            for col in 0..<9 {
+                XCTAssertEqual(session.solution[row][col], 0)
+            }
+        }
+    }
+    
+    // MARK: - Note Clearing Tests
+    
+    func testNotesClearedFromRow() {
+        var board = SudokuBoard.createSampleBoard()
+        
+        // Add note 5 to multiple cells in row 0
+        board.notes[0][1].insert(5)
+        board.notes[0][3].insert(5)
+        board.notes[0][5].insert(5)
+        
+        XCTAssertTrue(board.notes[0][1].contains(5))
+        XCTAssertTrue(board.notes[0][3].contains(5))
+        
+        // Clear note 5 from row
+        for c in 0..<9 {
+            board.notes[0][c].remove(5)
+        }
+        
+        XCTAssertFalse(board.notes[0][1].contains(5))
+        XCTAssertFalse(board.notes[0][3].contains(5))
+        XCTAssertFalse(board.notes[0][5].contains(5))
+    }
+    
+    func testNotesClearedFromColumn() {
+        var board = SudokuBoard.createSampleBoard()
+        
+        // Add note 3 to multiple cells in column 2
+        board.notes[1][2].insert(3)
+        board.notes[4][2].insert(3)
+        board.notes[7][2].insert(3)
+        
+        XCTAssertTrue(board.notes[1][2].contains(3))
+        
+        // Clear note 3 from column
+        for r in 0..<9 {
+            board.notes[r][2].remove(3)
+        }
+        
+        XCTAssertFalse(board.notes[1][2].contains(3))
+        XCTAssertFalse(board.notes[4][2].contains(3))
+        XCTAssertFalse(board.notes[7][2].contains(3))
+    }
+    
+    func testNotesClearedFromBox() {
+        var board = SudokuBoard.createSampleBoard()
+        
+        // Add note 7 to cells in first 3x3 box
+        board.notes[0][0].insert(7)
+        board.notes[1][1].insert(7)
+        board.notes[2][2].insert(7)
+        
+        // Clear note 7 from box (rows 0-2, cols 0-2)
+        for r in 0..<3 {
+            for c in 0..<3 {
+                board.notes[r][c].remove(7)
+            }
+        }
+        
+        XCTAssertFalse(board.notes[0][0].contains(7))
+        XCTAssertFalse(board.notes[1][1].contains(7))
+        XCTAssertFalse(board.notes[2][2].contains(7))
+    }
+    
+    // MARK: - Validation Tests
+    
+    func testIsValidMoveCorrectValue() {
+        let puzzle = SudokuEngine.generatePuzzle(difficulty: .easy)
+        let grid = puzzle.initialGrid
+        
+        // Find an empty cell
+        var testRow = -1
+        var testCol = -1
+        for row in 0..<9 {
+            for col in 0..<9 {
+                if grid[row][col] == 0 {
+                    testRow = row
+                    testCol = col
+                    break
+                }
+            }
+            if testRow != -1 { break }
+        }
+        
+        if testRow != -1 {
+            let correctValue = puzzle.solution[testRow][testCol]
+            let isValid = SudokuEngine.isValidMove(grid: grid, row: testRow, col: testCol, value: correctValue)
+            XCTAssertTrue(isValid)
+        }
+    }
+    
+    func testIsCompleteWhenFullyFilled() {
+        let puzzle = SudokuEngine.generatePuzzle(difficulty: .easy)
+        var completedGrid = puzzle.initialGrid
+        
+        // Fill missing cells with solution
+        for row in 0..<9 {
+            for col in 0..<9 {
+                if completedGrid[row][col] == 0 {
+                    completedGrid[row][col] = puzzle.solution[row][col]
+                }
+            }
+        }
+        
+        let isComplete = SudokuEngine.isComplete(completedGrid)
+        XCTAssertTrue(isComplete)
+    }
+    
+    func testIsNotCompleteWhenPartiallyFilled() {
+        let puzzle = SudokuEngine.generatePuzzle(difficulty: .easy)
+        let grid = puzzle.initialGrid
+        
+        let isComplete = SudokuEngine.isComplete(grid)
+        XCTAssertFalse(isComplete)
+    }
 }
+

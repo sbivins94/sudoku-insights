@@ -225,26 +225,209 @@ When a cell is tapped:
 
 ## Implementation Priority
 
-1. **Enhancement 1** (Bold Grid Outlines) - Quick win, improves visual clarity immediately
-2. **Enhancement 2** (Keyboard Input) - Removes screen clutter, improves UX
-3. **Enhancement 3** (Smart Highlighting) - Enhances gameplay strategy
-4. **Enhancement 4** (Note-Taking) - Most complex, adds advanced functionality
+1. ~~**Enhancement 1** (Bold Grid Outlines)~~ ✅
+2. ~~**Enhancement 2** (Keyboard Input)~~ ✅
+3. ~~**Enhancement 3** (Smart Highlighting)~~ ✅
+4. ~~**Enhancement 4** (Note-Taking)~~ ✅
+5. **Enhancement 5** (Incorrect Input Feedback) - Visual error feedback
+6. **Enhancement 6** (Correct Input Animation) - Satisfying confirmation animation
+7. **Enhancement 7** (Remove Gray Background on Givens) - Cleaner board aesthetics
+8. **Enhancement 8** (3×3 Box Highlighting) - Highlight containing box on cell select
 
 ## Testing Checklist
 
-- [ ] 3×3 grids are visually distinct and properly aligned
-- [ ] Keyboard input works for numbers 1-9
-- [ ] Delete/Backspace clears selected cell
-- [ ] Row/column highlighting works correctly
-- [ ] Number matching highlights all instances
-- [ ] Note toggle button changes state
-- [ ] Notes display correctly in 3×3 format
-- [ ] Notes clear when value is entered
-- [ ] Initial (bold) numbers remain unmodifiable
+- [x] 3×3 grids are visually distinct and properly aligned
+- [x] Keyboard input works for numbers 1-9
+- [x] Delete/Backspace clears selected cell
+- [x] Row/column highlighting works correctly
+- [x] Number matching highlights all instances
+- [x] Note toggle button changes state
+- [x] Notes display correctly in 3×3 format
+- [x] Notes clear when value is entered
+- [x] Initial (bold) numbers remain unmodifiable
 - [ ] Telemetry records all interactions (notes, keyboard input)
+- [ ] Incorrect numbers display in red
+- [ ] Correct numbers flash blue/bold then fade to default over 3 seconds
+- [ ] 3×3 box containing selected cell is subtly highlighted
+- [ ] Given numbers no longer have gray background
 
 ---
 
+## Enhancement 5: Incorrect Number Input Displays Red
+
+### Current State
+- All user-entered numbers display in blue regardless of correctness
+- No visual feedback when a wrong number is entered
+
+### Desired State
+- When a user enters an incorrect number, it displays in **red**
+- Incorrect = violates Sudoku constraints (duplicate in row, column, or 3×3 box)
+- Red color persists until the number is cleared or corrected
+
+### Implementation Steps
+
+#### 5.1 Validation Logic
+1. Add validation check when a number is entered:
+   ```swift
+   func isValidPlacement(row: Int, col: Int, value: Int) -> Bool
+   ```
+2. Use existing `SudokuEngine.isValidMove()` to check against current board state
+3. Store validity state per cell for rendering
+
+#### 5.2 Data Model Updates
+1. Add error tracking to the board or view model:
+   ```swift
+   @Published var invalidCells: Set<String>  // "row,col" keys
+   ```
+2. Update on every number entry — revalidate affected cells when board changes
+
+#### 5.3 UI Updates
+1. Update `CellView` to accept an `isInvalid` parameter
+2. When `isInvalid == true`, render number text in `Color.red`
+3. When `isInvalid == false`, render with default color (black for givens, contextual for user entries)
+
+### Files to Modify
+- `Sources/SudokuInsightsApp/main.swift` — `AppViewModel`, `CellView`
+- `Sources/SudokuInsights/Core/SudokuEngine/SudokuEngine.swift` — may leverage existing `isValidMove()`
+
+---
+
+## Enhancement 6: Correct Input Animation (Blue/Bold → Default Fade)
+
+### Current State
+- User-entered numbers appear in blue immediately with no animation
+- No visual confirmation that a correct number was placed
+
+### Desired State
+- When a correct number is entered, it appears in **bold blue**
+- Over **3 seconds**, the color and weight gradually transition to match the default style (black, regular weight)
+- Provides satisfying visual feedback for correct placements
+
+### Implementation Steps
+
+#### 6.1 Animation State Tracking
+1. Track recently placed correct cells with timestamps:
+   ```swift
+   @Published var recentCorrectCells: [String: Date]  // "row,col" → time placed
+   ```
+2. On each render, compute elapsed time since placement to drive the animation
+
+#### 6.2 Animation Implementation
+1. Use SwiftUI's animation system with a timer or `TimelineView`:
+   ```swift
+   // Interpolate color from blue → black over 3 seconds
+   let progress = min(elapsed / 3.0, 1.0)
+   let color = Color.blue.opacity(1.0 - progress)  // fades toward black
+   let weight: Font.Weight = progress < 0.5 ? .bold : .regular
+   ```
+2. Alternative: Use `withAnimation(.easeOut(duration: 3.0))` on state change
+3. Consider `TimelineView(.animation)` for smooth continuous interpolation
+
+#### 6.3 UI Updates
+1. Update `CellView` to accept animation progress:
+   - `animationProgress: Double` (0.0 = just placed, 1.0 = fully settled)
+2. Interpolate font color from blue → black based on progress
+3. Interpolate font weight from bold → regular
+
+### Files to Modify
+- `Sources/SudokuInsightsApp/main.swift` — `AppViewModel`, `CellView`
+
+### Technical Considerations
+- Clean up `recentCorrectCells` entries once animation completes (progress ≥ 1.0)
+- Ensure animation doesn't interfere with cell selection or highlighting
+- Consider using `TimelineView` for frame-accurate animation without manual timers
+
+---
+
+## Enhancement 7: Remove Gray Background on Given Numbers
+
+### Current State
+- Cells with pre-filled (given) numbers have a gray background (`Color.gray.opacity(0.2)`)
+- This creates visual noise and makes the board feel cluttered
+
+### Desired State
+- Given numbers render with the **same white background** as empty cells
+- Given numbers remain **bold black** to distinguish them from user entries
+- The bold font weight alone is sufficient to indicate a given vs. user-entered number
+
+### Implementation Steps
+
+1. Update `CellView.backgroundColor` computed property:
+   ```swift
+   // Remove the isInitial case — treat it the same as empty cells
+   private var backgroundColor: Color {
+       if isSelected {
+           return Color.blue.opacity(0.4)
+       } else if isNumberHighlighted {
+           return Color.yellow.opacity(0.3)
+       } else if isAxisHighlighted {
+           return Color.blue.opacity(0.15)
+       } else {
+           return Color.white  // Same for givens and empty cells
+       }
+   }
+   ```
+
+### Files to Modify
+- `Sources/SudokuInsightsApp/main.swift` — `CellView.backgroundColor`
+
+---
+Enhancement 8: 3×3 Box Highlighting
+
+### Current State
+- When a cell is selected, its row and column are highlighted with a light blue tint
+- The 3×3 box the cell belongs to is not highlighted
+- Makes it harder to quickly scan constraints within the box
+
+### Desired State
+- When a cell is selected, the entire **3×3 box** containing it is subtly highlighted
+- Uses a color on the **same gray gradient** as the board background (e.g., `Color.gray.opacity(0.1)`)
+- Lighter/subtler than the row/column highlighting so it doesn't compete visually
+- Visual hierarchy: **selected cell > number match > row/column > 3×3 box > default**
+
+### Implementation Steps
+
+#### 8.1 Box Detection
+1. Add helper to determine if a cell shares a 3×3 box with the selected cell:
+   ```swift
+   func isInSameBox(row: Int, col: Int) -> Bool {
+       guard let selected = selectedCell else { return false }
+       let boxRow = selected.row / 3
+       let boxCol = selected.col / 3
+       return (row / 3 == boxRow) && (col / 3 == boxCol)
+   }
+   ```
+
+#### 8.2 UI Updates
+1. Add `isBoxHighlighted` parameter to `CellView`
+2. Update `backgroundColor` computed property — insert box highlighting below axis but above default:
+   ```swift
+   private var backgroundColor: Color {
+       if isSelected {
+           return Color.blue.opacity(0.4)
+       } else if isNumberHighlighted {
+           return Color.yellow.opacity(0.3)
+       } else if isAxisHighlighted {
+           return Color.blue.opacity(0.15)
+       } else if isBoxHighlighted {
+           return Color.gray.opacity(0.1)  // Same gradient as board background
+       } else {
+           return Color.white
+       }
+   }
+   ```
+
+### Files to Modify
+- `Sources/SudokuInsightsApp/main.swift` — `GameBoardContentView`, `CellView`
+
+### Design Considerations
+- Box highlight should be **subtler** than row/column (gray vs blue tint)
+- Where row/column and box overlap, row/column takes priority
+- Uses the board's gray color family so it feels like a natural part of the grid
+
+---
+
+## 
 ## Future Considerations
 
 - Auto-fill candidate notes for all empty cells
