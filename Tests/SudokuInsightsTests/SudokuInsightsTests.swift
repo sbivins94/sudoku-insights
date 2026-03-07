@@ -369,5 +369,195 @@ final class SudokuInsightsTests: XCTestCase {
         let isComplete = SudokuEngine.isComplete(grid)
         XCTAssertFalse(isComplete)
     }
+    
+    // MARK: - Game State Persistence Tests
+    
+    func testSavedGameStateEncoding() {
+        let board: [[Int]] = Array(repeating: Array(repeating: 0, count: 9), count: 9)
+        let notes: [[Set<Int>]] = Array(repeating: Array(repeating: Set<Int>(), count: 9), count: 9)
+        let solution = SudokuBoard.getSampleBoardSolution()
+        
+        let state = SavedGameState(
+            difficulty: .medium,
+            board: board,
+            initialBoard: board,
+            solution: solution,
+            notes: notes,
+            elapsedTime: 120.0,
+            errorCount: 3,
+            timestamp: Date()
+        )
+        
+        // Should be encodable
+        let encoded = try? JSONEncoder().encode(state)
+        XCTAssertNotNil(encoded)
+    }
+    
+    func testSavedGameStateDecoding() {
+        let board: [[Int]] = Array(repeating: Array(repeating: 0, count: 9), count: 9)
+        let notes: [[Set<Int>]] = Array(repeating: Array(repeating: Set<Int>(), count: 9), count: 9)
+        let solution = SudokuBoard.getSampleBoardSolution()
+        let now = Date()
+        
+        let state = SavedGameState(
+            difficulty: .hard,
+            board: board,
+            initialBoard: board,
+            solution: solution,
+            notes: notes,
+            elapsedTime: 240.0,
+            errorCount: 5,
+            timestamp: now
+        )
+        
+        if let encoded = try? JSONEncoder().encode(state),
+           let decoded = try? JSONDecoder().decode(SavedGameState.self, from: encoded) {
+            XCTAssertEqual(decoded.difficulty, .hard)
+            XCTAssertEqual(decoded.elapsedTime, 240.0)
+            XCTAssertEqual(decoded.errorCount, 5)
+        } else {
+            XCTFail("Failed to encode/decode SavedGameState")
+        }
+    }
+    
+    func testSavedGameStateWithNotes() {
+        var board: [[Int]] = Array(repeating: Array(repeating: 0, count: 9), count: 9)
+        var notes: [[Set<Int>]] = Array(repeating: Array(repeating: Set<Int>(), count: 9), count: 9)
+        
+        // Add some notes
+        notes[0][0].insert(1)
+        notes[0][0].insert(2)
+        notes[1][1].insert(5)
+        
+        let state = SavedGameState(
+            difficulty: .easy,
+            board: board,
+            initialBoard: board,
+            solution: SudokuBoard.getSampleBoardSolution(),
+            notes: notes,
+            elapsedTime: 60.0,
+            errorCount: 0,
+            timestamp: Date()
+        )
+        
+        if let encoded = try? JSONEncoder().encode(state),
+           let decoded = try? JSONDecoder().decode(SavedGameState.self, from: encoded) {
+            XCTAssertTrue(decoded.notes[0][0].contains(1))
+            XCTAssertTrue(decoded.notes[0][0].contains(2))
+            XCTAssertTrue(decoded.notes[1][1].contains(5))
+        }
+    }
+    
+    func testSavedGameStatePreservesBoard() {
+        var board: [[Int]] = Array(repeating: Array(repeating: 0, count: 9), count: 9)
+        board[0][0] = 5
+        board[1][1] = 3
+        board[2][2] = 7
+        
+        let state = SavedGameState(
+            difficulty: .medium,
+            board: board,
+            initialBoard: board,
+            solution: SudokuBoard.getSampleBoardSolution(),
+            notes: Array(repeating: Array(repeating: Set<Int>(), count: 9), count: 9),
+            elapsedTime: 180.0,
+            errorCount: 2,
+            timestamp: Date()
+        )
+        
+        if let encoded = try? JSONEncoder().encode(state),
+           let decoded = try? JSONDecoder().decode(SavedGameState.self, from: encoded) {
+            XCTAssertEqual(decoded.board[0][0], 5)
+            XCTAssertEqual(decoded.board[1][1], 3)
+            XCTAssertEqual(decoded.board[2][2], 7)
+        }
+    }
+    
+    func testSudokuBoardInitWithAllParameters() {
+        let grid: [[Int]] = Array(repeating: Array(repeating: 0, count: 9), count: 9)
+        var notes: [[Set<Int>]] = Array(repeating: Array(repeating: Set<Int>(), count: 9), count: 9)
+        notes[0][0].insert(1)
+        
+        let board = SudokuBoard(grid: grid, initialGrid: grid, notes: notes)
+        
+        XCTAssertEqual(board.grid.count, 9)
+        XCTAssertTrue(board.notes[0][0].contains(1))
+    }
+    
+    func testSudokuBoardInitWithDefaults() {
+        let grid: [[Int]] = Array(repeating: Array(repeating: 0, count: 9), count: 9)
+        let board = SudokuBoard(grid: grid)
+        
+        XCTAssertEqual(board.grid.count, 9)
+        XCTAssertTrue(board.notes[0][0].isEmpty)
+    }
+    
+    func testGameSessionWithBoardAndNotes() {
+        var board = SudokuBoard.createSampleBoard()
+        board.notes[3][3].insert(2)
+        board.notes[3][3].insert(4)
+        board.notes[4][4].insert(6)
+        
+        let session = GameSession(
+            id: UUID().uuidString,
+            difficulty: .medium,
+            startTime: Date(),
+            initialBoard: board,
+            solution: SudokuBoard.getSampleBoardSolution()
+        )
+        
+        XCTAssertEqual(session.currentBoard.notes[3][3].count, 2)
+        XCTAssertTrue(session.currentBoard.notes[3][3].contains(2))
+        XCTAssertTrue(session.currentBoard.notes[4][4].contains(6))
+    }
+    
+    func testUserDefaultsPersistence() {
+        let key = "test_completion_times_medium"
+        
+        // Clear any existing value
+        UserDefaults.standard.removeObject(forKey: key)
+        
+        // Save completion times
+        let times = [120.0, 150.0, 180.0]
+        UserDefaults.standard.set(times, forKey: key)
+        
+        // Retrieve and verify
+        let retrieved = UserDefaults.standard.array(forKey: key) as? [Double] ?? []
+        XCTAssertEqual(retrieved.count, 3)
+        XCTAssertEqual(retrieved[0], 120.0)
+        
+        // Cleanup
+        UserDefaults.standard.removeObject(forKey: key)
+    }
+    
+    func testAverageTimeCalculation() {
+        let key = "test_avg_times_easy"
+        UserDefaults.standard.removeObject(forKey: key)
+        
+        let times = [100.0, 200.0, 300.0]
+        UserDefaults.standard.set(times, forKey: key)
+        
+        let retrieved = UserDefaults.standard.array(forKey: key) as? [Double] ?? []
+        let average = retrieved.reduce(0, +) / Double(retrieved.count)
+        
+        XCTAssertEqual(average, 200.0)
+        
+        UserDefaults.standard.removeObject(forKey: key)
+    }
+    
+    func testBestTimeCalculation() {
+        let key = "test_best_times_hard"
+        UserDefaults.standard.removeObject(forKey: key)
+        
+        let times = [500.0, 250.0, 400.0]
+        UserDefaults.standard.set(times, forKey: key)
+        
+        let retrieved = UserDefaults.standard.array(forKey: key) as? [TimeInterval] ?? []
+        let best = retrieved.min() ?? 0
+        
+        XCTAssertEqual(best, 250.0)
+        
+        UserDefaults.standard.removeObject(forKey: key)
+    }
 }
 

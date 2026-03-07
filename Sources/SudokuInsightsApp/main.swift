@@ -23,54 +23,47 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
+// MARK: - Saved Game State
+struct SavedGameState: Codable {
+    let difficulty: Difficulty
+    let board: [[Int]]
+    let initialBoard: [[Int]]
+    let solution: [[Int]]
+    let notes: [[Set<Int>]]
+    let elapsedTime: TimeInterval
+    let errorCount: Int
+    let timestamp: Date
+}
+
 struct ContentView: View {
     @StateObject private var viewModel = AppViewModel()
     
     var body: some View {
-        NavigationSplitView {
-            // Sidebar
-            List(selection: $viewModel.selectedView) {
-                Label("Game Board", systemImage: "square.grid.3x3")
-                    .tag(ViewSelection.gameBoard)
-                Label("Dashboard", systemImage: "chart.bar")
-                    .tag(ViewSelection.dashboard)
-                Label("Reports", systemImage: "doc.text")
-                    .tag(ViewSelection.reports)
-            }
-            .navigationTitle("Sudoku Insights")
-        } detail: {
-            switch viewModel.selectedView {
-            case .gameBoard:
-                GameBoardContentView(viewModel: viewModel)
-            case .dashboard:
-                StatsDashboardContentView(viewModel: viewModel)
-            case .reports:
-                ReportContentView(viewModel: viewModel)
-            }
+        if viewModel.showLandingPage {
+            LandingPageView(viewModel: viewModel)
+        } else {
+            GameBoardContentView(viewModel: viewModel)
         }
     }
 }
 
-enum ViewSelection {
-    case gameBoard
-    case dashboard
-    case reports
-}
-
 @MainActor
 class AppViewModel: ObservableObject {
-    @Published var selectedView: ViewSelection = .gameBoard
+    @Published var showLandingPage: Bool = true
+    @Published var currentDifficulty: Difficulty = .medium
     @Published var currentSession: GameSession
     @Published var boardViewModel: GameBoardViewModel
     @Published var isNoteTakingMode: Bool = false
-    @Published var invalidCells: Set<String> = [] // "row,col" format
-    @Published var correctCells: Set<String> = [] // "row,col" format for correct entries
-    @Published var availableCandidates: Set<Int> = Set(1...9) // Numbers not yet fully placed
+    @Published var invalidCells: Set<String> = []
+    @Published var correctCells: Set<String> = []
+    @Published var availableCandidates: Set<Int> = Set(1...9)
     @Published var elapsedTime: TimeInterval = 0
     @Published var errorCount: Int = 0
     @Published var isGameComplete: Bool = false
     
     private var timerCancellable: AnyCancellable?
+    private var autoSaveTimer: Timer?
+    private let savedGameKey = "savedGameState"
     
     var formattedTime: String {
         let minutes = Int(elapsedTime) / 60
@@ -79,7 +72,7 @@ class AppViewModel: ObservableObject {
     }
     
     init() {
-        // Create a sample game session
+        // Initialize with dummy session - will be replaced when game starts
         let session = GameSession(
             id: UUID().uuidString,
             difficulty: .medium,
@@ -89,17 +82,87 @@ class AppViewModel: ObservableObject {
         )
         self.currentSession = session
         self.boardViewModel = GameBoardViewModel(session: session)
+    }
+    
+    // MARK: - Persistence Methods
+    func saveGameState() {
+        guard !isGameComplete else { return }
+        
+        let state = SavedGameState(
+            difficulty: currentDifficulty,
+            board: currentSession.currentBoard.grid,
+            initialBoard: currentSession.initialBoard.grid,
+            solution: currentSession.solution,
+            notes: currentSession.currentBoard.notes,
+            elapsedTime: elapsedTime,
+            errorCount: errorCount,
+            timestamp: Date()
+        )
+        
+        if let encoded = try? JSONEncoder().encode(state) {
+            UserDefaults.standard.set(encoded, forKey: savedGameKey)
+        }
+    }
+    
+    func loadGameState() -> SavedGameState? {
+        guard let data = UserDefaults.standard.data(forKey: savedGameKey),
+              let state = try? JSONDecoder().decode(SavedGameState.self, from: data) else {
+            return nil
+        }
+        return state
+    }
+    
+    func clearSavedGame() {
+        UserDefaults.standard.removeObject(forKey: savedGameKey)
+    }
+    
+    func continueLastGame() {
+        guard let state = loadGameState() else { return }
+        
+        currentDifficulty = state.difficulty
+        
+        var board = SudokuBoard(grid: state.board)
+        board.notes = state.notes
+        
+        let initialBoard = SudokuBoard(grid: state.initialBoard)
+        
+        var session = GameSession(
+            id: UUID().uuidString,
+            difficulty: state.difficulty,
+            startTime: Date(),
+            initialBoard: initialBoard,
+            solution: state.solution
+        )
+        session.currentBoard = board
+        
+        self.currentSession = session
+        self.boardViewModel = GameBoardViewModel(session: session)
+        self.elapsedTime = state.elapsedTime
+        self.errorCount = state.errorCount
+        self.isGameComplete = false
+        self.invalidCells.removeAll()
+        self.correctCells.removeAll()
+        
         startTimer()
+        startAutoSave()
+        showLandingPage = false
     }
     
     func startNewGame(difficulty: Difficulty) {
+        clearSavedGame()
+        
+        currentDifficulty = difficulty
+        let board = SudokuBoard.createSampleBoard()
+        let solution = SudokuBoard.getSampleBoardSolution()
+        
         let session = GameSession(
             id: UUID().uuidString,
             difficulty: difficulty,
             startTime: Date(),
-            initialBoard: SudokuBoard.createSampleBoard(),
-            solution: SudokuBoard.getSampleBoardSolution()
+            initialBoard: board,
+            solution: solution
         )
+        
         self.currentSession = session
         self.boardViewModel = GameBoardViewModel(session: session)
         self.elapsedTime = 0
@@ -108,7 +171,21 @@ class AppViewModel: ObservableObject {
         self.invalidCells.removeAll()
         self.correctCells.removeAll()
         self.availableCandidates = Set(1...9)
+        
         startTimer()
+        startAutoSave()
+        showLandingPage = false
+    }
+    
+    func returnToMenu() {
+        stopTimer()
+        stopAutoSave()
+        
+        if !isGameComplete {
+            saveGameState()
+        }
+        
+        showLandingPage = true
     }
     
     private func startTimer() {
@@ -126,6 +203,21 @@ class AppViewModel: ObservableObject {
         timerCancellable = nil
     }
     
+    private func startAutoSave() {
+        autoSaveTimer?.invalidate()
+        autoSaveTimer = Timer.scheduledTimer(withTimeInterval: 30.0, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.saveGameState()
+            }
+        }
+    }
+    
+    private func stopAutoSave() {
+        autoSaveTimer?.invalidate()
+        autoSaveTimer = nil
+    }
+    
+    // MARK: - Game Logic Methods
     func handleKeyPress(_ value: Int) {
         guard let cell = boardViewModel.selectedCell else { return }
         guard !isGameComplete else { return }
@@ -133,21 +225,16 @@ class AppViewModel: ObservableObject {
         if isNoteTakingMode {
             currentSession.currentBoard.toggleNote(row: cell.row, col: cell.col, value: value)
         } else {
-            // Track errors before placing the value
             if currentSession.solution[cell.row][cell.col] != value {
                 errorCount += 1
             }
             boardViewModel.didEnterValue(value, at: cell.row, col: cell.col)
             currentSession.currentBoard.grid[cell.row][cell.col] = value
-            // Clear notes when value is entered
             currentSession.currentBoard.clearNotes(row: cell.row, col: cell.col)
-            // Validate the entire board
             validateBoard()
-            // If correct, clear related notes
             if correctCells.contains("\(cell.row),\(cell.col)") {
                 clearRelatedNotes(row: cell.row, col: cell.col, value: value)
             }
-            // Check for game completion
             checkGameCompletion()
         }
     }
@@ -156,7 +243,6 @@ class AppViewModel: ObservableObject {
         guard let cell = boardViewModel.selectedCell else { return }
         boardViewModel.didEraseCell(row: cell.row, col: cell.col)
         currentSession.currentBoard.grid[cell.row][cell.col] = 0
-        // Validate the board after deletion
         validateBoard()
     }
     
@@ -169,18 +255,15 @@ class AppViewModel: ObservableObject {
         
         for row in 0..<9 {
             for col in 0..<9 {
-                // Skip given/initial numbers
                 if initialGrid[row][col] != 0 {
                     continue
                 }
                 
                 let value = grid[row][col]
                 if value != 0 {
-                    // Check if this value matches the solution
                     if solution[row][col] == value {
                         correctCells.insert("\(row),\(col)")
                     } else {
-                        // Check if it's just invalid (violates constraints)
                         if !SudokuEngine.isValidMove(grid: grid, row: row, col: col, value: value) {
                             invalidCells.insert("\(row),\(col)")
                         }
@@ -188,22 +271,16 @@ class AppViewModel: ObservableObject {
                 }
             }
         }
-        // Update candidates after validation
         updateAvailableCandidates()
     }
     
     private func clearRelatedNotes(row: Int, col: Int, value: Int) {
-        // Clear notes containing this value from the same row
         for c in 0..<9 {
             currentSession.currentBoard.notes[row][c].remove(value)
         }
-        
-        // Clear notes containing this value from the same column
         for r in 0..<9 {
             currentSession.currentBoard.notes[r][col].remove(value)
         }
-        
-        // Clear notes containing this value from the same 3x3 box
         let boxRow = (row / 3) * 3
         let boxCol = (col / 3) * 3
         for r in boxRow..<(boxRow + 3) {
@@ -218,7 +295,6 @@ class AppViewModel: ObservableObject {
         let grid = currentSession.currentBoard.grid
         let solution = currentSession.solution
         
-        // Count all cells where grid matches solution (both givens and user entries)
         var numberCounts: [Int: Int] = [:]
         for row in 0..<9 {
             for col in 0..<9 {
@@ -229,7 +305,6 @@ class AppViewModel: ObservableObject {
             }
         }
         
-        // Remove numbers that have been placed 9 times (all instances correct)
         for number in 1...9 {
             if let count = numberCounts[number], count >= 9 {
                 availableCandidates.remove(number)
@@ -249,21 +324,45 @@ class AppViewModel: ObservableObject {
             }
         }
         
-        // Game is complete!
         isGameComplete = true
         stopTimer()
+        stopAutoSave()
+        clearSavedGame()
         saveCompletionTime()
     }
     
     private func saveCompletionTime() {
-        let key = "completionTimes_\(currentSession.difficulty.rawValue)"
+        let key = "completionTimes_\(currentDifficulty.rawValue)"
         var times = UserDefaults.standard.array(forKey: key) as? [Double] ?? []
         times.append(elapsedTime)
         UserDefaults.standard.set(times, forKey: key)
     }
     
-    func averageTimeForDifficulty() -> Double? {
-        let key = "completionTimes_\(currentSession.difficulty.rawValue)"
+    func bestTimeForDifficulty(_ difficulty: Difficulty) -> String {
+        let key = "completionTimes_\(difficulty.rawValue)"
+        let times = UserDefaults.standard.array(forKey: key) as? [TimeInterval] ?? []
+        
+        guard let best = times.min() else { return "--:--" }
+        
+        let minutes = Int(best) / 60
+        let seconds = Int(best) % 60
+        return String(format: "%02d:%02d", minutes, seconds)
+    }
+    
+    func averageTimeForDifficulty(_ difficulty: Difficulty) -> String {
+        let key = "completionTimes_\(difficulty.rawValue)"
+        let times = UserDefaults.standard.array(forKey: key) as? [Double] ?? []
+        
+        guard !times.isEmpty else { return "--:--" }
+        
+        let avg = times.reduce(0, +) / Double(times.count)
+        let minutes = Int(avg) / 60
+        let seconds = Int(avg) % 60
+        return String(format: "%02d:%02d", minutes, seconds)
+    }
+    
+    func averageTimeForDifficultyValue(_ difficulty: Difficulty) -> Double? {
+        let key = "completionTimes_\(difficulty.rawValue)"
         let times = UserDefaults.standard.array(forKey: key) as? [Double] ?? []
         guard !times.isEmpty else { return nil }
         return times.reduce(0, +) / Double(times.count)
@@ -273,6 +372,177 @@ class AppViewModel: ObservableObject {
         let minutes = Int(interval) / 60
         let seconds = Int(interval) % 60
         return String(format: "%02d:%02d", minutes, seconds)
+    }
+}
+
+// MARK: - Landing Page View
+struct LandingPageView: View {
+    @ObservedObject var viewModel: AppViewModel
+    
+    var body: some View {
+        VStack(spacing: 30) {
+            Text("SUDOKU INSIGHTS")
+                .font(.system(size: 36, weight: .bold))
+                .foregroundColor(.primary)
+            
+            // Continue Last Game Button
+            if let savedGame = viewModel.loadGameState() {
+                ContinueGameButton(savedGame: savedGame) {
+                    viewModel.continueLastGame()
+                }
+            }
+            
+            // Difficulty Grid
+            DifficultyGridView(viewModel: viewModel)
+            
+            Spacer()
+        }
+        .padding(40)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(red: 0.96, green: 0.95, blue: 0.90))
+    }
+}
+
+struct ContinueGameButton: View {
+    let savedGame: SavedGameState
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Image(systemName: "play.fill")
+                    Text("Continue Last Game")
+                        .font(.headline)
+                }
+                
+                HStack(spacing: 12) {
+                    Text(savedGame.difficulty.rawValue.capitalized)
+                        .font(.subheadline)
+                    Text("·")
+                    Text(formatTime(savedGame.elapsedTime))
+                        .font(.subheadline)
+                    if savedGame.errorCount > 0 {
+                        Text("·")
+                        Text("\(savedGame.errorCount) errors")
+                            .font(.subheadline)
+                            .foregroundColor(.red)
+                    }
+                }
+                .foregroundColor(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(20)
+            .background(Color.green.opacity(0.15))
+            .cornerRadius(12)
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(Color.green, lineWidth: 2)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+    
+    private func formatTime(_ interval: TimeInterval) -> String {
+        let minutes = Int(interval) / 60
+        let seconds = Int(interval) % 60
+        return String(format: "%02d:%02d", minutes, seconds)
+    }
+}
+
+struct DifficultyGridView: View {
+    @ObservedObject var viewModel: AppViewModel
+    
+    let columns = [
+        GridItem(.flexible(), spacing: 20),
+        GridItem(.flexible(), spacing: 20)
+    ]
+    
+    var body: some View {
+        LazyVGrid(columns: columns, spacing: 20) {
+            DifficultyCard(
+                difficulty: .easy,
+                color: .green,
+                preFilledCells: 51,
+                viewModel: viewModel
+            )
+            DifficultyCard(
+                difficulty: .medium,
+                color: .blue,
+                preFilledCells: 41,
+                viewModel: viewModel
+            )
+            DifficultyCard(
+                difficulty: .hard,
+                color: .orange,
+                preFilledCells: 31,
+                viewModel: viewModel
+            )
+            DifficultyCard(
+                difficulty: .expert,
+                color: .red,
+                preFilledCells: 21,
+                viewModel: viewModel
+            )
+        }
+    }
+}
+
+struct DifficultyCard: View {
+    let difficulty: Difficulty
+    let color: Color
+    let preFilledCells: Int
+    @ObservedObject var viewModel: AppViewModel
+    
+    var body: some View {
+        Button(action: {
+            viewModel.startNewGame(difficulty: difficulty)
+        }) {
+            VStack(spacing: 12) {
+                Text(difficulty.rawValue.uppercased())
+                    .font(.title2)
+                    .fontWeight(.bold)
+                
+                Text("\(preFilledCells) pre-filled")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                
+                Divider()
+                    .padding(.horizontal, 10)
+                
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("Best:")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Spacer()
+                        Text(viewModel.bestTimeForDifficulty(difficulty))
+                            .font(.caption)
+                            .fontWeight(.medium)
+                    }
+                    
+                    HStack {
+                        Text("Avg:")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Spacer()
+                        Text(viewModel.averageTimeForDifficulty(difficulty))
+                            .font(.caption)
+                            .fontWeight(.medium)
+                    }
+                }
+                .padding(.horizontal, 10)
+            }
+            .padding(20)
+            .frame(width: 160, height: 180)
+            .background(Color.white)
+            .cornerRadius(12)
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(color, lineWidth: 3)
+            )
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -286,10 +556,19 @@ struct GameBoardContentView: View {
             VStack(spacing: 20) {
                 // Header with title and timer
                 HStack {
-                    Text("Sudoku Game Board")
-                        .font(.largeTitle)
+                    Button(action: {
+                        viewModel.returnToMenu()
+                    }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "chevron.left")
+                            Text("Menu")
+                        }
+                        .font(.subheadline)
+                    }
+                    .buttonStyle(.bordered)
+                    
                     Spacer()
-                    // Debug: Auto-finish button
+                    
                     Button(action: {
                         for row in 0..<9 {
                             for col in 0..<9 {
@@ -308,7 +587,7 @@ struct GameBoardContentView: View {
                             .cornerRadius(6)
                     }
                     .buttonStyle(.plain)
-                    // Timer
+                    
                     HStack(spacing: 4) {
                         Image(systemName: "clock")
                             .foregroundColor(.secondary)
@@ -324,126 +603,100 @@ struct GameBoardContentView: View {
                 }
                 .padding(.horizontal)
             
-            // 9x9 Sudoku Grid
-            VStack(spacing: 0) {
-                ForEach(0..<9) { row in
-                    HStack(spacing: 0) {
-                        ForEach(0..<9) { col in
-                            CellView(
-                                value: viewModel.currentSession.currentBoard.grid[row][col],
-                                notes: viewModel.currentSession.currentBoard.notes[row][col],
-                                isSelected: selectedCell?.row == row && selectedCell?.col == col,
-                                isInitial: viewModel.currentSession.initialBoard.grid[row][col] != 0,
-                                isAxisHighlighted: isAxisHighlighted(row: row, col: col),
-                                isNumberHighlighted: isNumberHighlighted(row: row, col: col),
-                                isBoxHighlighted: isBoxHighlighted(row: row, col: col),
-                                isInvalid: viewModel.invalidCells.contains("\(row),\(col)"),
-                                isCorrect: viewModel.correctCells.contains("\(row),\(col)"),
-                                row: row,
-                                col: col
-                            )
-                            .onTapGesture {
-                                selectedCell = (row, col)
-                                viewModel.boardViewModel.didTapCell(row: row, col: col)
-                                viewModel.boardViewModel.selectedCell = (row, col)
+                // 9x9 Sudoku Grid
+                VStack(spacing: 0) {
+                    ForEach(0..<9) { row in
+                        HStack(spacing: 0) {
+                            ForEach(0..<9) { col in
+                                CellView(
+                                    value: viewModel.currentSession.currentBoard.grid[row][col],
+                                    notes: viewModel.currentSession.currentBoard.notes[row][col],
+                                    isSelected: selectedCell?.row == row && selectedCell?.col == col,
+                                    isInitial: viewModel.currentSession.initialBoard.grid[row][col] != 0,
+                                    isAxisHighlighted: isAxisHighlighted(row: row, col: col),
+                                    isNumberHighlighted: isNumberHighlighted(row: row, col: col),
+                                    isBoxHighlighted: isBoxHighlighted(row: row, col: col),
+                                    isInvalid: viewModel.invalidCells.contains("\(row),\(col)"),
+                                    isCorrect: viewModel.correctCells.contains("\(row),\(col)"),
+                                    row: row,
+                                    col: col
+                                )
+                                .onTapGesture {
+                                    selectedCell = (row, col)
+                                    viewModel.boardViewModel.didTapCell(row: row, col: col)
+                                    viewModel.boardViewModel.selectedCell = (row, col)
+                                }
                             }
                         }
                     }
                 }
-            }
-            .padding()
-            .background(Color.gray.opacity(0.2))
-            .cornerRadius(10)
-            .onAppear {
-                // Set up keyboard monitoring
-                NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-                    self.handleKeyDown(event)
-                    return event
+                .padding()
+                .background(Color.gray.opacity(0.2))
+                .cornerRadius(10)
+                .onAppear {
+                    NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                        self.handleKeyDown(event)
+                        return event
+                    }
                 }
-            }
-            
-            // Note-taking toggle button (below grid, aligned right)
-            HStack {
+                
+                // Note-taking toggle button
+                HStack {
+                    Spacer()
+                    Button(action: {
+                        viewModel.isNoteTakingMode.toggle()
+                    }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: viewModel.isNoteTakingMode ? "pencil.circle.fill" : "pencil.circle")
+                            Text(viewModel.isNoteTakingMode ? "Notes ON" : "Notes OFF")
+                                .font(.callout)
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(viewModel.isNoteTakingMode ? Color.blue : Color.gray.opacity(0.3))
+                        .foregroundColor(viewModel.isNoteTakingMode ? .white : .primary)
+                        .cornerRadius(8)
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal)
+                
+                // Candidates tracker
+                HStack(spacing: 8) {
+                    ForEach(1...9, id: \.self) { num in
+                        if viewModel.availableCandidates.contains(num) {
+                            Text("\(num)")
+                                .font(.callout)
+                                .fontWeight(.semibold)
+                                .frame(width: 32, height: 32)
+                                .background(Color.blue.opacity(0.15))
+                                .cornerRadius(6)
+                        } else {
+                            Text("\(num)")
+                                .font(.callout)
+                                .foregroundColor(.gray.opacity(0.3))
+                                .strikethrough()
+                                .frame(width: 32, height: 32)
+                                .background(Color.gray.opacity(0.05))
+                                .cornerRadius(6)
+                        }
+                    }
+                }
+                .padding(.horizontal)
+                
                 Spacer()
-                Button(action: {
-                    viewModel.isNoteTakingMode.toggle()
-                }) {
-                    HStack(spacing: 4) {
-                        Image(systemName: viewModel.isNoteTakingMode ? "pencil.circle.fill" : "pencil.circle")
-                        Text(viewModel.isNoteTakingMode ? "Notes ON" : "Notes OFF")
-                            .font(.callout)
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(viewModel.isNoteTakingMode ? Color.blue : Color.gray.opacity(0.3))
-                    .foregroundColor(viewModel.isNoteTakingMode ? .white : .primary)
-                    .cornerRadius(8)
-                }
-                .buttonStyle(.plain)
             }
-            .padding(.horizontal)
-            
-            // Candidates tracker
-            HStack(spacing: 8) {
-                ForEach(1...9, id: \.self) { num in
-                    if viewModel.availableCandidates.contains(num) {
-                        Text("\(num)")
-                            .font(.callout)
-                            .fontWeight(.semibold)
-                            .frame(width: 32, height: 32)
-                            .background(Color.blue.opacity(0.15))
-                            .cornerRadius(6)
-                    } else {
-                        Text("\(num)")
-                            .font(.callout)
-                            .foregroundColor(.gray.opacity(0.3))
-                            .strikethrough()
-                            .frame(width: 32, height: 32)
-                            .background(Color.gray.opacity(0.05))
-                            .cornerRadius(6)
-                    }
-                }
-            }
-            .padding(.horizontal)
-            
-            // Session info
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Session ID: \(viewModel.currentSession.id.prefix(8))...")
-                    .font(.caption)
-                Text("Difficulty: \(viewModel.currentSession.difficulty.rawValue.capitalized)")
-                    .font(.caption)
-                Text("Tap Events: \(viewModel.currentSession.tapEvents.count)")
-                    .font(.caption)
-                if viewModel.isNoteTakingMode {
-                    Text("Mode: Note Taking")
-                        .font(.caption)
-                        .foregroundColor(.blue)
-                } else {
-                    Text("Mode: Number Entry")
-                        .font(.caption)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding()
-            .background(Color.gray.opacity(0.1))
-            .cornerRadius(8)
             .padding()
             
-            Spacer()
+            if viewModel.isGameComplete {
+                GameCompleteOverlay(viewModel: viewModel)
+            }
         }
-        .padding()
-        
-        // Game Complete Overlay
-        if viewModel.isGameComplete {
-            GameCompleteOverlay(viewModel: viewModel)
-        }
-        } // ZStack
     }
     
     private func handleKeyDown(_ event: NSEvent) {
         guard selectedCell != nil else { return }
         
-        // Handle number keys 1-9
         if let chars = event.charactersIgnoringModifiers,
            let char = chars.first,
            let num = Int(String(char)),
@@ -452,8 +705,7 @@ struct GameBoardContentView: View {
             return
         }
         
-        // Handle delete/backspace
-        if event.keyCode == 51 || event.keyCode == 117 { // Delete or Forward Delete
+        if event.keyCode == 51 || event.keyCode == 117 {
             viewModel.handleDelete()
             return
         }
@@ -496,10 +748,8 @@ struct CellView: View {
     
     var body: some View {
         ZStack {
-            // Background color based on highlighting
             backgroundColor
             
-            // Sparkle animation overlay for correct entries
             if isCorrect && isAnimating {
                 Circle()
                     .fill(Color.blue.opacity(0.5))
@@ -508,7 +758,6 @@ struct CellView: View {
                     .animation(.easeOut(duration: 1.5), value: isAnimating)
             }
             
-            // Content: either value or notes
             if value == 0 && !notes.isEmpty {
                 NotesGridView(notes: notes)
             } else if value != 0 {
@@ -526,7 +775,6 @@ struct CellView: View {
         .border(Color.gray.opacity(0.4), width: 0.5)
         .overlay(
             Group {
-                // Bold right border for 3x3 grid (cols 2, 5)
                 if col == 2 || col == 5 {
                     Rectangle()
                         .fill(Color.black)
@@ -534,7 +782,6 @@ struct CellView: View {
                         .offset(x: 25)
                 }
                 
-                // Bold bottom border for 3x3 grid (rows 2, 5)
                 if row == 2 || row == 5 {
                     Rectangle()
                         .fill(Color.black)
@@ -559,10 +806,8 @@ struct CellView: View {
         } else if isNumberHighlighted {
             return Color.yellow.opacity(0.3)
         } else if isAxisHighlighted {
-            // Light beige/olive tone - same as box highlighting
             return Color(red: 0.96, green: 0.95, blue: 0.90)
         } else if isBoxHighlighted {
-            // Light beige/olive tone - much lighter and warmer
             return Color(red: 0.96, green: 0.95, blue: 0.90)
         } else {
             return Color.white
@@ -570,7 +815,6 @@ struct CellView: View {
     }
 }
 
-// MARK: - Notes Grid View
 struct NotesGridView: View {
     let notes: Set<Int>
     
@@ -592,7 +836,6 @@ struct NotesGridView: View {
     }
 }
 
-// MARK: - Confetti Particle
 struct ConfettiPiece: Identifiable {
     let id = UUID()
     let color: Color
@@ -603,7 +846,6 @@ struct ConfettiPiece: Identifiable {
     let size: CGFloat
 }
 
-// MARK: - Confetti View
 struct ConfettiView: View {
     @State private var animate = false
     
@@ -643,22 +885,18 @@ struct ConfettiView: View {
     }
 }
 
-// MARK: - Game Complete Overlay
 struct GameCompleteOverlay: View {
     @ObservedObject var viewModel: AppViewModel
     @State private var showStats = false
     
     var body: some View {
         ZStack {
-            // Semi-transparent background
             Color.black.opacity(0.4)
                 .ignoresSafeArea()
-                .onTapGesture {} // Block taps through
+                .onTapGesture {}
             
-            // Confetti
             ConfettiView()
             
-            // Stats card
             VStack(spacing: 20) {
                 Text("🎉")
                     .font(.system(size: 60))
@@ -669,7 +907,6 @@ struct GameCompleteOverlay: View {
                     .foregroundColor(.white)
                 
                 VStack(spacing: 16) {
-                    // Time to complete
                     HStack(spacing: 12) {
                         Image(systemName: "clock.fill")
                             .foregroundColor(.blue)
@@ -687,7 +924,6 @@ struct GameCompleteOverlay: View {
                     
                     Divider()
                     
-                    // Error count
                     HStack(spacing: 12) {
                         Image(systemName: "xmark.circle.fill")
                             .foregroundColor(.red)
@@ -704,7 +940,6 @@ struct GameCompleteOverlay: View {
                     
                     Divider()
                     
-                    // Average time comparison
                     HStack(spacing: 12) {
                         Image(systemName: "chart.bar.fill")
                             .foregroundColor(.green)
@@ -713,7 +948,7 @@ struct GameCompleteOverlay: View {
                             .foregroundColor(.secondary)
                             .frame(maxWidth: 60, alignment: .leading)
                         Spacer()
-                        if let avg = viewModel.averageTimeForDifficulty() {
+                        if let avg = viewModel.averageTimeForDifficultyValue(viewModel.currentDifficulty) {
                             VStack(alignment: .trailing, spacing: 2) {
                                 Text(viewModel.formattedTimeInterval(avg))
                                     .font(.headline)
@@ -749,19 +984,33 @@ struct GameCompleteOverlay: View {
                 .background(Color.gray.opacity(0.05))
                 .cornerRadius(12)
                 
-                // New Game button
-                Button(action: {
-                    viewModel.startNewGame(difficulty: viewModel.currentSession.difficulty)
-                }) {
-                    Text("New Game")
-                        .font(.headline)
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 32)
-                        .padding(.vertical, 12)
-                        .background(Color.blue)
-                        .cornerRadius(10)
+                HStack(spacing: 12) {
+                    Button(action: {
+                        viewModel.returnToMenu()
+                    }) {
+                        Text("Back to Menu")
+                            .font(.headline)
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 24)
+                            .padding(.vertical, 10)
+                            .background(Color.gray)
+                            .cornerRadius(8)
+                    }
+                    .buttonStyle(.plain)
+                    
+                    Button(action: {
+                        viewModel.startNewGame(difficulty: viewModel.currentDifficulty)
+                    }) {
+                        Text("New Game")
+                            .font(.headline)
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 32)
+                            .padding(.vertical, 10)
+                            .background(Color.blue)
+                            .cornerRadius(8)
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
             }
             .padding(32)
             .frame(width: 380)
@@ -782,73 +1031,12 @@ struct GameCompleteOverlay: View {
     }
 }
 
-// MARK: - Dashboard View
+// MARK: - Dashboard View (kept for compatibility)
 struct StatsDashboardContentView: View {
     @ObservedObject var viewModel: AppViewModel
     
     var body: some View {
-        ScrollView {
-            VStack(spacing: 20) {
-                Text("Analytics Dashboard")
-                    .font(.largeTitle)
-                    .padding()
-                
-                // Generate analytics
-                let analytics = AnalyticsEngine(session: viewModel.currentSession)
-                let metrics = analytics.generateSessionMetrics()
-                
-                // Metrics cards
-                HStack(spacing: 20) {
-                    MetricCard(title: "Total Taps", value: "\(metrics.totalTaps)")
-                    MetricCard(title: "Duration", value: String(format: "%.1fs", metrics.elapsedTime))
-                    MetricCard(title: "Avg Hesitation", value: String(format: "%.2fs", metrics.averageHesitationTime))
-                }
-                .padding()
-                
-                // Heatmap placeholder
-                VStack {
-                    Text("Tap Heatmap")
-                        .font(.headline)
-                    
-                    VStack(spacing: 2) {
-                        ForEach(0..<9) { row in
-                            HStack(spacing: 2) {
-                                ForEach(0..<9) { col in
-                                    let tapCount = viewModel.currentSession.tapEvents.filter {
-                                        $0.row == row && $0.col == col
-                                    }.count
-                                    
-                                    Rectangle()
-                                        .fill(heatmapColor(for: tapCount))
-                                        .frame(width: 40, height: 40)
-                                        .overlay(
-                                            Text(tapCount > 0 ? "\(tapCount)" : "")
-                                                .font(.caption2)
-                                                .foregroundColor(.white)
-                                        )
-                                }
-                            }
-                        }
-                    }
-                }
-                .padding()
-                .background(Color.gray.opacity(0.1))
-                .cornerRadius(10)
-                
-                Spacer()
-            }
-            .padding()
-        }
-    }
-    
-    func heatmapColor(for count: Int) -> Color {
-        switch count {
-        case 0: return Color.gray.opacity(0.2)
-        case 1...2: return Color.green.opacity(0.5)
-        case 3...5: return Color.yellow.opacity(0.7)
-        case 6...10: return Color.orange.opacity(0.8)
-        default: return Color.red.opacity(0.9)
-        }
+        Text("Dashboard")
     }
 }
 
@@ -872,30 +1060,11 @@ struct MetricCard: View {
     }
 }
 
-// MARK: - Report View
 struct ReportContentView: View {
     @ObservedObject var viewModel: AppViewModel
     
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                Text("Session Report")
-                    .font(.largeTitle)
-                    .padding()
-                
-                let analytics = AnalyticsEngine(session: viewModel.currentSession)
-                let report = analytics.generateDetailedReport()
-                
-                // Report sections
-                ReportSection(title: "Session Overview", content: report.sessionOverview)
-                ReportSection(title: "Performance Metrics", content: report.performanceMetrics)
-                ReportSection(title: "Cognitive Patterns", content: report.cognitivePatterns)
-                ReportSection(title: "Recommendations", content: report.recommendations)
-                
-                Spacer()
-            }
-            .padding()
-        }
+        Text("Reports")
     }
 }
 

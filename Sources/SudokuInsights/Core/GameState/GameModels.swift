@@ -65,6 +65,11 @@ public struct SudokuBoard: Codable {
         self.notes = Array(repeating: Array(repeating: Set<Int>(), count: 9), count: 9)
     }
     
+    public init(grid: [[Int]], initialGrid: [[Int]] = [[Int]](), notes: [[Set<Int>]] = []) {
+        self.grid = grid
+        self.notes = notes.isEmpty ? Array(repeating: Array(repeating: Set<Int>(), count: 9), count: 9) : notes
+    }
+    
     /// Toggle a note in a specific cell
     public mutating func toggleNote(row: Int, col: Int, value: Int) {
         guard row >= 0 && row < 9 && col >= 0 && col < 9 else { return }
