@@ -72,13 +72,15 @@ class AppViewModel: ObservableObject {
     }
     
     init() {
-        // Initialize with dummy session - will be replaced when game starts
+        // Initialize with a generated puzzle - will be replaced when game starts
+        let initialPuzzle = SudokuEngine.generatePuzzle(difficulty: .medium)
+        let initialBoard = SudokuBoard(grid: initialPuzzle.initialGrid)
         let session = GameSession(
             id: UUID().uuidString,
             difficulty: .medium,
             startTime: Date(),
-            initialBoard: SudokuBoard.createSampleBoard(),
-            solution: SudokuBoard.getSampleBoardSolution()
+            initialBoard: initialBoard,
+            solution: initialPuzzle.solution
         )
         self.currentSession = session
         self.boardViewModel = GameBoardViewModel(session: session)
@@ -152,8 +154,9 @@ class AppViewModel: ObservableObject {
         clearSavedGame()
         
         currentDifficulty = difficulty
-        let board = SudokuBoard.createSampleBoard()
-        let solution = SudokuBoard.getSampleBoardSolution()
+        let puzzle = SudokuEngine.generatePuzzle(difficulty: difficulty)
+        let board = SudokuBoard(grid: puzzle.initialGrid)
+        let solution = puzzle.solution
         
         let session = GameSession(
             id: UUID().uuidString,
@@ -379,11 +382,13 @@ class AppViewModel: ObservableObject {
 struct LandingPageView: View {
     @ObservedObject var viewModel: AppViewModel
     
+    private let primaryText = Color(red: 0.15, green: 0.18, blue: 0.22)
+    
     var body: some View {
         VStack(spacing: 30) {
             Text("SUDOKU INSIGHTS")
                 .font(.system(size: 36, weight: .bold))
-                .foregroundColor(.primary)
+                .foregroundColor(primaryText)
             
             // Continue Last Game Button
             if let savedGame = viewModel.loadGameState() {
@@ -397,15 +402,21 @@ struct LandingPageView: View {
             
             Spacer()
         }
-        .padding(40)
+        .padding(.horizontal, 20)
+        .padding(.top, 32)
+        .padding(.bottom, 48)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(red: 0.96, green: 0.95, blue: 0.90))
+        .preferredColorScheme(.light)
     }
 }
 
 struct ContinueGameButton: View {
     let savedGame: SavedGameState
     let action: () -> Void
+    
+    private let primaryText = Color(red: 0.15, green: 0.18, blue: 0.22)
+    private let secondaryText = Color(red: 0.35, green: 0.38, blue: 0.42)
     
     var body: some View {
         Button(action: action) {
@@ -429,8 +440,9 @@ struct ContinueGameButton: View {
                             .foregroundColor(.red)
                     }
                 }
-                .foregroundColor(.secondary)
+                .foregroundColor(secondaryText)
             }
+            .foregroundColor(primaryText)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(20)
             .background(Color.green.opacity(0.15))
@@ -453,13 +465,8 @@ struct ContinueGameButton: View {
 struct DifficultyGridView: View {
     @ObservedObject var viewModel: AppViewModel
     
-    let columns = [
-        GridItem(.flexible(), spacing: 20),
-        GridItem(.flexible(), spacing: 20)
-    ]
-    
     var body: some View {
-        LazyVGrid(columns: columns, spacing: 20) {
+        VStack(spacing: 16) {
             DifficultyCard(
                 difficulty: .easy,
                 color: .green,
@@ -485,6 +492,8 @@ struct DifficultyGridView: View {
                 viewModel: viewModel
             )
         }
+        .frame(maxWidth: 760)
+        .frame(maxWidth: .infinity)
     }
 }
 
@@ -494,47 +503,51 @@ struct DifficultyCard: View {
     let preFilledCells: Int
     @ObservedObject var viewModel: AppViewModel
     
+    private let primaryText = Color(red: 0.15, green: 0.18, blue: 0.22)
+    private let secondaryText = Color(red: 0.35, green: 0.38, blue: 0.42)
+    
     var body: some View {
         Button(action: {
             viewModel.startNewGame(difficulty: difficulty)
         }) {
-            VStack(spacing: 12) {
+            VStack(spacing: 14) {
                 Text(difficulty.rawValue.uppercased())
-                    .font(.title2)
+                    .font(.title)
                     .fontWeight(.bold)
                 
                 Text("\(preFilledCells) pre-filled")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                    .font(.subheadline)
+                    .foregroundColor(secondaryText)
                 
                 Divider()
                     .padding(.horizontal, 10)
                 
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 6) {
                     HStack {
                         Text("Best:")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                            .font(.callout)
+                            .foregroundColor(secondaryText)
                         Spacer()
                         Text(viewModel.bestTimeForDifficulty(difficulty))
-                            .font(.caption)
-                            .fontWeight(.medium)
+                            .font(.callout)
+                            .fontWeight(.semibold)
                     }
                     
                     HStack {
                         Text("Avg:")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                            .font(.callout)
+                            .foregroundColor(secondaryText)
                         Spacer()
                         Text(viewModel.averageTimeForDifficulty(difficulty))
-                            .font(.caption)
-                            .fontWeight(.medium)
+                            .font(.callout)
+                            .fontWeight(.semibold)
                     }
                 }
                 .padding(.horizontal, 10)
             }
-            .padding(20)
-            .frame(width: 160, height: 180)
+            .foregroundColor(primaryText)
+            .padding(24)
+            .frame(maxWidth: .infinity, minHeight: 180)
             .background(Color.white)
             .cornerRadius(12)
             .overlay(
@@ -550,6 +563,12 @@ struct DifficultyCard: View {
 struct GameBoardContentView: View {
     @ObservedObject var viewModel: AppViewModel
     @State private var selectedCell: (row: Int, col: Int)?
+    
+    private var selectedValueForHighlighting: Int? {
+        guard let selected = selectedCell else { return nil }
+        let value = viewModel.currentSession.currentBoard.grid[selected.row][selected.col]
+        return value == 0 ? nil : value
+    }
     
     var body: some View {
         ZStack {
@@ -611,6 +630,7 @@ struct GameBoardContentView: View {
                                 CellView(
                                     value: viewModel.currentSession.currentBoard.grid[row][col],
                                     notes: viewModel.currentSession.currentBoard.notes[row][col],
+                                    highlightedNoteNumber: selectedValueForHighlighting,
                                     isSelected: selectedCell?.row == row && selectedCell?.col == col,
                                     isInitial: viewModel.currentSession.initialBoard.grid[row][col] != 0,
                                     isAxisHighlighted: isAxisHighlighted(row: row, col: col),
@@ -649,12 +669,12 @@ struct GameBoardContentView: View {
                         HStack(spacing: 4) {
                             Image(systemName: viewModel.isNoteTakingMode ? "pencil.circle.fill" : "pencil.circle")
                             Text(viewModel.isNoteTakingMode ? "Notes ON" : "Notes OFF")
-                                .font(.callout)
+                                .font(.headline)
                         }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(viewModel.isNoteTakingMode ? Color.blue : Color.gray.opacity(0.3))
-                        .foregroundColor(viewModel.isNoteTakingMode ? .white : .primary)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(viewModel.isNoteTakingMode ? Color.blue : Color.gray.opacity(0.65))
+                        .foregroundColor(.white)
                         .cornerRadius(8)
                     }
                     .buttonStyle(.plain)
@@ -662,23 +682,24 @@ struct GameBoardContentView: View {
                 .padding(.horizontal)
                 
                 // Candidates tracker
-                HStack(spacing: 8) {
+                HStack(spacing: 10) {
                     ForEach(1...9, id: \.self) { num in
                         if viewModel.availableCandidates.contains(num) {
                             Text("\(num)")
-                                .font(.callout)
-                                .fontWeight(.semibold)
-                                .frame(width: 32, height: 32)
-                                .background(Color.blue.opacity(0.15))
-                                .cornerRadius(6)
+                                .font(.title3)
+                                .fontWeight(.bold)
+                                .foregroundColor(Color.blue.opacity(0.95))
+                                .frame(width: 40, height: 40)
+                                .background(Color.blue.opacity(0.28))
+                                .cornerRadius(8)
                         } else {
                             Text("\(num)")
-                                .font(.callout)
-                                .foregroundColor(.gray.opacity(0.3))
+                                .font(.title3)
+                                .foregroundColor(.gray.opacity(0.5))
                                 .strikethrough()
-                                .frame(width: 32, height: 32)
-                                .background(Color.gray.opacity(0.05))
-                                .cornerRadius(6)
+                                .frame(width: 40, height: 40)
+                                .background(Color.gray.opacity(0.10))
+                                .cornerRadius(8)
                         }
                     }
                 }
@@ -702,6 +723,12 @@ struct GameBoardContentView: View {
            let num = Int(String(char)),
            num >= 1 && num <= 9 {
             viewModel.handleKeyPress(num)
+            return
+        }
+        
+        if let chars = event.charactersIgnoringModifiers,
+           chars.lowercased() == "n" {
+            viewModel.isNoteTakingMode.toggle()
             return
         }
         
@@ -734,6 +761,7 @@ struct GameBoardContentView: View {
 struct CellView: View {
     let value: Int
     let notes: Set<Int>
+    let highlightedNoteNumber: Int?
     let isSelected: Bool
     let isInitial: Bool
     let isAxisHighlighted: Bool
@@ -759,7 +787,7 @@ struct CellView: View {
             }
             
             if value == 0 && !notes.isEmpty {
-                NotesGridView(notes: notes)
+                NotesGridView(notes: notes, highlightedNumber: highlightedNoteNumber)
             } else if value != 0 {
                 Text("\(value)")
                     .font(.title2)
@@ -817,6 +845,7 @@ struct CellView: View {
 
 struct NotesGridView: View {
     let notes: Set<Int>
+    let highlightedNumber: Int?
     
     var body: some View {
         VStack(spacing: 0) {
@@ -824,10 +853,18 @@ struct NotesGridView: View {
                 HStack(spacing: 0) {
                     ForEach(0..<3) { col in
                         let num = row * 3 + col + 1
-                        Text(notes.contains(num) ? "\(num)" : "")
-                            .font(.system(size: 10))
+                        let hasNote = notes.contains(num)
+                        let isHighlighted = highlightedNumber == num && hasNote
+                        Text(hasNote ? "\(num)" : "")
+                            .font(.system(size: 11, weight: isHighlighted ? .bold : .medium))
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .foregroundColor(.gray)
+                            .foregroundColor(isHighlighted ? .blue : .gray)
+                            .background(
+                                isHighlighted
+                                ? Color.yellow.opacity(0.45)
+                                : Color.clear
+                            )
+                            .cornerRadius(3)
                     }
                 }
             }
