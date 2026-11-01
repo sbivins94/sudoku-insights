@@ -92,7 +92,7 @@ public extension InsightMetric {
 
     static let errorsPerGame = InsightMetric(
         id: "errorsPerGame",
-        title: "Errors / game",
+        title: "Mistakes / game",
         explanation: "Digits you entered that didn't match the solution, averaged per puzzle.",
         lowerIsBetter: true,
         computation: { mean($0) { Double($0.metrics.errors) } },

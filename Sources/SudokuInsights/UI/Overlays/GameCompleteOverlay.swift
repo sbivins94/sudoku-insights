@@ -49,7 +49,7 @@ public struct GameCompleteOverlay: View {
                         Image(systemName: "xmark.circle.fill")
                             .foregroundColor(theme.errorDigit)
                             .frame(width: 20)
-                        Text("Errors")
+                        Text("Mistakes")
                             .foregroundColor(theme.secondaryText)
                             .frame(maxWidth: 60, alignment: .leading)
                         Spacer()

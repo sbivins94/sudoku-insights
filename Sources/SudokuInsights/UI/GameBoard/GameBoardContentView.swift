@@ -6,6 +6,10 @@ public struct GameBoardContentView: View {
     @State private var showThemePicker = false
 
     private let numberPadSpacing: CGFloat = 6
+    /// Horizontal padding on the whole screen, and the board's own inset. Both are kept
+    /// tight so the grid can run close to the full screen width.
+    private let bodyPadding: CGFloat = 10
+    private let boardInset: CGFloat = 6
 
     private var theme: SudokuTheme { viewModel.theme }
 
@@ -45,7 +49,8 @@ public struct GameBoardContentView: View {
                         toolbar
                         numberPad(buttonSize: padButtonSize)
                     }
-                    .padding()
+                    .padding(.horizontal, bodyPadding)
+                    .padding(.vertical, 12)
                 }
                 .frame(width: screenGeo.size.width, height: screenGeo.size.height)
 
@@ -60,16 +65,16 @@ public struct GameBoardContentView: View {
     }
 
     private func gridCellSize(for screenSize: CGSize) -> CGFloat {
-        let outerPadding: CGFloat = 32 // body VStack padding, both sides
-        let gridPadding: CGFloat = 32 // grid's own padding, both sides
+        let outerPadding = bodyPadding * 2
+        let gridPadding = boardInset * 2
         let widthBudget = screenSize.width - outerPadding - gridPadding
-        let heightBudget = screenSize.height * 0.5 // leave room for header/controls
+        let heightBudget = screenSize.height * 0.62 // leave room for header/controls
         let rawSize = min(widthBudget, heightBudget) / 9
-        return min(max(rawSize, 28), 50)
+        return min(max(rawSize, 28), 64)
     }
 
     private func numberPadButtonSize(for screenSize: CGSize) -> CGFloat {
-        let outerPadding: CGFloat = 32 // body VStack padding, both sides
+        let outerPadding = bodyPadding * 2
         let totalSpacing = numberPadSpacing * 8 // 8 gaps between 9 buttons
         let widthBudget = screenSize.width - outerPadding - totalSpacing
         return min(max(widthBudget / 9, 28), 52)
@@ -117,7 +122,7 @@ public struct GameBoardContentView: View {
                 statColumn("Time", viewModel.formattedTime)
             }
         }
-        .padding(.horizontal)
+        .padding(.horizontal, 4)
     }
 
     private func statColumn(_ label: String, _ value: String) -> some View {
@@ -163,7 +168,7 @@ public struct GameBoardContentView: View {
             }
         }
         .overlay(boxSeparators(cellSize: cellSize))
-        .padding()
+        .padding(boardInset)
         .background(theme.boardSurface)
         .cornerRadius(10)
         #if os(macOS)
@@ -202,28 +207,37 @@ public struct GameBoardContentView: View {
         .allowsHitTesting(false)
     }
 
+    private var canErase: Bool {
+        guard let cell = selectedCell else { return false }
+        return viewModel.canErase(row: cell.row, col: cell.col)
+    }
+
     private var toolbar: some View {
-        HStack {
-            Button(action: {
+        HStack(spacing: 8) {
+            toolbarButton(
+                icon: "arrow.uturn.backward",
+                label: "Undo",
+                isEnabled: viewModel.canUndo,
+                isActive: false
+            ) {
                 viewModel.undo()
-            }) {
-                HStack(spacing: 4) {
-                    Image(systemName: "arrow.uturn.backward")
-                    Text("Undo")
-                        .font(.headline)
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .background(theme.controlBackground.opacity(viewModel.canUndo ? 1.0 : 0.4))
-                .foregroundColor(theme.controlForeground.opacity(viewModel.canUndo ? 1.0 : 0.6))
-                .cornerRadius(8)
             }
-            .buttonStyle(.plain)
-            .disabled(!viewModel.canUndo)
 
-            Spacer()
+            toolbarButton(
+                icon: "eraser",
+                label: "Erase",
+                isEnabled: canErase,
+                isActive: false
+            ) {
+                viewModel.handleDelete()
+            }
 
-            Button(action: {
+            toolbarButton(
+                icon: viewModel.isNoteTakingMode ? "pencil.circle.fill" : "pencil.circle",
+                label: viewModel.isNoteTakingMode ? "Notes ON" : "Notes OFF",
+                isEnabled: true,
+                isActive: viewModel.isNoteTakingMode
+            ) {
                 // Toggling republishes the view model, and SwiftUI would inherit any
                 // ambient animation to cross-fade all 81 cells — which reads as lag on
                 // a button that should feel instant.
@@ -232,22 +246,35 @@ public struct GameBoardContentView: View {
                 withTransaction(transaction) {
                     viewModel.isNoteTakingMode.toggle()
                 }
-            }) {
-                HStack(spacing: 4) {
-                    Image(systemName: viewModel.isNoteTakingMode ? "pencil.circle.fill" : "pencil.circle")
-                    Text(viewModel.isNoteTakingMode ? "Notes ON" : "Notes OFF")
-                        .font(.headline)
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .background(viewModel.isNoteTakingMode ? theme.accent : theme.controlBackground)
-                .foregroundColor(theme.controlForeground)
-                .cornerRadius(8)
             }
-            .buttonStyle(.plain)
             .animation(nil, value: viewModel.isNoteTakingMode)
         }
-        .padding(.horizontal)
+    }
+
+    private func toolbarButton(
+        icon: String,
+        label: String,
+        isEnabled: Bool,
+        isActive: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            VStack(spacing: 3) {
+                Image(systemName: icon)
+                    .font(.system(size: 17))
+                Text(label)
+                    .font(.system(size: 12, weight: .semibold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
+            .background(isActive ? theme.accent : theme.controlBackground.opacity(isEnabled ? 1.0 : 0.4))
+            .foregroundColor(theme.controlForeground.opacity(isEnabled ? 1.0 : 0.6))
+            .cornerRadius(8)
+        }
+        .buttonStyle(.plain)
+        .disabled(!isEnabled)
     }
 
     // Doubles as the candidates tracker; disables numbers once all 9 are correctly placed.

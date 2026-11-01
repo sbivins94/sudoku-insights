@@ -276,6 +276,7 @@ public class SharedAppViewModel: ObservableObject {
             let isCorrect = currentSession.solution[cell.row][cell.col] == value
             if !isCorrect {
                 errorCount += 1
+                Haptics.mistake()
             }
             boardViewModel.didEnterValue(value, at: cell.row, col: cell.col)
             currentSession.currentBoard.grid[cell.row][cell.col] = value
@@ -329,14 +330,31 @@ public class SharedAppViewModel: ObservableObject {
         }
     }
 
+    /// Erase only ever undoes the player's own input: a given clue is permanent, and a
+    /// digit that matches the solution stays put so the board can't be un-solved.
+    public func canErase(row: Int, col: Int) -> Bool {
+        guard !isGameComplete else { return false }
+        guard currentSession.initialBoard.grid[row][col] == 0 else { return false }
+
+        let value = currentSession.currentBoard.grid[row][col]
+        if value != 0 {
+            return currentSession.solution[row][col] != value
+        }
+        return !currentSession.currentBoard.notes[row][col].isEmpty
+    }
+
     public func handleDelete() {
         guard let cell = boardViewModel.selectedCell else { return }
-        guard !isGameComplete else { return }
-        guard currentSession.currentBoard.grid[cell.row][cell.col] != 0 else { return }
+        guard canErase(row: cell.row, col: cell.col) else { return }
 
         pushUndoSnapshot()
         boardViewModel.didEraseCell(row: cell.row, col: cell.col)
-        currentSession.currentBoard.grid[cell.row][cell.col] = 0
+
+        if currentSession.currentBoard.grid[cell.row][cell.col] != 0 {
+            currentSession.currentBoard.grid[cell.row][cell.col] = 0
+        } else {
+            currentSession.currentBoard.clearNotes(row: cell.row, col: cell.col)
+        }
         validateBoard()
     }
 

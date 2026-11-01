@@ -28,7 +28,7 @@ public struct ContinueGameButton: View {
                         .font(.subheadline)
                     if savedGame.errorCount > 0 {
                         Text("·")
-                        Text("\(savedGame.errorCount) errors")
+                        Text("\(savedGame.errorCount) mistakes")
                             .font(.subheadline)
                             .foregroundColor(theme.errorDigit)
                     }
