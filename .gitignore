@@ -4,14 +4,12 @@ build/
 *.mode1v3
 *.mode2v3
 *.perspectivev3
-*.xcworkspace
 xcuserdata/
 .DS_Store
 DerivedData/
 
 # Swift Package Manager
 .build/
-*.xcodeproj
 Packages/
 
 # Compiled binaries

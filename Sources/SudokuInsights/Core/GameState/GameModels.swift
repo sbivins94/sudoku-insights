@@ -28,7 +28,7 @@ public enum TapAction: String, Codable {
 }
 
 /// Represents difficulty level
-public enum Difficulty: String, Codable, CaseIterable {
+public enum Difficulty: String, Codable, CaseIterable, Sendable {
     case easy
     case medium
     case hard

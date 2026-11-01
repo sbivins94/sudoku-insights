@@ -3,102 +3,115 @@ import Foundation
 /// Wrapper for Sudoku puzzle generation and validation
 public class SudokuEngine {
 
-    /// Generate a new puzzle with given difficulty
+    /// How many cells each difficulty leaves pre-filled. Expert mirrors the 24-28 clue
+    /// band that sudoku.com labels "Extreme".
+    public static func clueRange(for difficulty: Difficulty) -> ClosedRange<Int> {
+        switch difficulty {
+        case .easy: return 40...45
+        case .medium: return 34...38
+        case .hard: return 29...33
+        case .expert: return 24...28
+        }
+    }
+
+    /// Generate a new puzzle with given difficulty.
+    ///
+    /// Every puzzle returned has exactly one solution and can be finished with the
+    /// techniques in `LogicalSolver` — so a correct deduction is never marked wrong and
+    /// the player never has to guess.
     public static func generatePuzzle(difficulty: Difficulty = .medium) -> SudokuPuzzle {
-        // Generate a complete valid Sudoku grid
-        let solution = generateValidGrid()
+        let range = clueRange(for: difficulty)
+        // Solvable-but-wrong-band beats in-band-but-needs-guessing, so keep them separate.
+        var solvableFallback: (puzzle: [[Int]], solution: [[Int]])?
+        var lastResort: (puzzle: [[Int]], solution: [[Int]])?
 
-        // Remove cells based on difficulty to create the puzzle
-        let initialGrid = createPuzzle(from: solution, difficulty: difficulty)
+        for _ in 0..<24 {
+            let solution = generateValidGrid()
+            let target = Int.random(in: range)
+            let puzzle = dig(from: solution, targetClues: target)
+            let candidate = (puzzle: puzzle, solution: solution)
 
+            if lastResort == nil { lastResort = candidate }
+
+            guard let technique = LogicalSolver.hardestTechnique(for: puzzle) else { continue }
+            if solvableFallback == nil { solvableFallback = candidate }
+
+            guard range.contains(clueCount(puzzle)),
+                  satisfies(difficulty: difficulty, technique: technique) else {
+                continue
+            }
+
+            return SudokuPuzzle(
+                seed: UUID().uuidString,
+                difficulty: difficulty,
+                initialGrid: puzzle,
+                solution: solution
+            )
+        }
+
+        let result = solvableFallback ?? lastResort!
         return SudokuPuzzle(
             seed: UUID().uuidString,
             difficulty: difficulty,
-            initialGrid: initialGrid,
-            solution: solution
+            initialGrid: result.puzzle,
+            solution: result.solution
         )
+    }
+
+    private static func satisfies(difficulty: Difficulty, technique: SolveTechnique) -> Bool {
+        switch difficulty {
+        case .easy: return technique == .singles
+        case .medium: return technique <= .lockedCandidates
+        case .hard: return technique > .singles
+        case .expert: return technique > .singles
+        }
+    }
+
+    private static func clueCount(_ grid: [[Int]]) -> Int {
+        grid.reduce(0) { $0 + $1.filter { $0 != 0 }.count }
+    }
+
+    /// Removes clues one at a time, putting any clue back if taking it out would leave the
+    /// puzzle with more than one solution.
+    private static func dig(from solution: [[Int]], targetClues: Int) -> [[Int]] {
+        var puzzle = solution
+        var clues = 81
+        var positions = Array(0..<81)
+        positions.shuffle()
+
+        // Re-sweep the survivors: a clue that was load-bearing early can become removable
+        // once its neighbours are gone, so one pass alone often stalls short of the target.
+        while clues > targetClues {
+            var removedThisPass = false
+
+            for position in positions {
+                guard clues > targetClues else { break }
+
+                let row = position / 9, col = position % 9
+                let removed = puzzle[row][col]
+                guard removed != 0 else { continue }
+
+                puzzle[row][col] = 0
+                var solver = SudokuSolver(puzzle)
+                if solver.countSolutions(cap: 2) == 1 {
+                    clues -= 1
+                    removedThisPass = true
+                } else {
+                    puzzle[row][col] = removed
+                }
+            }
+
+            if !removedThisPass { break }
+            positions.shuffle()
+        }
+        return puzzle
     }
 
     /// Generate a completely filled, valid Sudoku grid
     private static func generateValidGrid() -> [[Int]] {
-        var grid = Array(repeating: Array(repeating: 0, count: 9), count: 9)
-
-        // Fill diagonal 3x3 boxes first (they don't affect each other)
-        fillDiagonalBoxes(&grid)
-
-        // Fill remaining cells using backtracking
-        _ = solveGrid(&grid)
-
-        return grid
-    }
-
-    /// Fill the three diagonal 3x3 boxes
-    private static func fillDiagonalBoxes(_ grid: inout [[Int]]) {
-        for box in 0..<3 {
-            fillBox(&grid, box: box, rowOffset: box * 3, colOffset: box * 3)
-        }
-    }
-
-    /// Fill a single 3x3 box with random valid numbers
-    private static func fillBox(_ grid: inout [[Int]], box: Int, rowOffset: Int, colOffset: Int) {
-        var numbers = Array(1...9)
-        numbers.shuffle()
-
-        var index = 0
-        for row in 0..<3 {
-            for col in 0..<3 {
-                grid[rowOffset + row][colOffset + col] = numbers[index]
-                index += 1
-            }
-        }
-    }
-
-    /// Create puzzle by removing cells from solution based on difficulty
-    private static func createPuzzle(from solution: [[Int]], difficulty: Difficulty) -> [[Int]] {
-        var puzzle = solution
-
-        // Number of cells to remove based on difficulty
-        let cellsToRemove: Int
-        switch difficulty {
-        case .easy: cellsToRemove = 30
-        case .medium: cellsToRemove = 40
-        case .hard: cellsToRemove = 50
-        case .expert: cellsToRemove = 60
-        }
-
-        // Randomly remove cells
-        var positions = (0..<81).map { $0 }
-        positions.shuffle()
-
-        for i in 0..<cellsToRemove {
-            let position = positions[i]
-            let row = position / 9
-            let col = position % 9
-            puzzle[row][col] = 0
-        }
-
-        return puzzle
-    }
-
-    /// Solve a Sudoku grid using backtracking
-    private static func solveGrid(_ grid: inout [[Int]]) -> Bool {
-        for row in 0..<9 {
-            for col in 0..<9 {
-                if grid[row][col] == 0 {
-                    for num in 1...9 {
-                        if isSafe(grid, row: row, col: col, num: num) {
-                            grid[row][col] = num
-                            if solveGrid(&grid) {
-                                return true
-                            }
-                            grid[row][col] = 0
-                        }
-                    }
-                    return false
-                }
-            }
-        }
-        return true
+        var solver = SudokuSolver(Array(repeating: Array(repeating: 0, count: 9), count: 9))
+        _ = solver.fillRandomly()
+        return solver.solvedGrid
     }
 
     /// Check if it's safe to place a number at given position
