@@ -8,8 +8,8 @@ public struct GameBoardContentView: View {
     private let numberPadSpacing: CGFloat = 6
     /// Horizontal padding on the whole screen, and the board's own inset. Both are kept
     /// tight so the grid can run close to the full screen width.
-    private let bodyPadding: CGFloat = 10
-    private let boardInset: CGFloat = 6
+    private let bodyPadding: CGFloat = 8
+    private let boardInset: CGFloat = 2
 
     private var theme: SudokuTheme { viewModel.theme }
 
@@ -170,7 +170,7 @@ public struct GameBoardContentView: View {
         .overlay(boxSeparators(cellSize: cellSize))
         .padding(boardInset)
         .background(theme.boardSurface)
-        .cornerRadius(10)
+        .cornerRadius(4)
         #if os(macOS)
         .onMacKeyboardInput(
             isSelectionActive: { selectedCell != nil },
@@ -186,7 +186,7 @@ public struct GameBoardContentView: View {
     // is invisible against white but leaves a blended dark edge on a highlighted cell.
     private func boxSeparators(cellSize: CGFloat) -> some View {
         let boardSize = cellSize * 9
-        let lineWidth: CGFloat = 4
+        let lineWidth: CGFloat = 2
 
         return ZStack(alignment: .topLeading) {
             ForEach([3, 6], id: \.self) { index in
@@ -286,15 +286,13 @@ public struct GameBoardContentView: View {
                     selectedCell.map { _ in viewModel.handleKeyPress(num) }
                 } label: {
                     Text("\(num)")
-                        .font(.system(size: buttonSize * 0.86))
-                        .fontWeight(isAvailable ? .bold : .regular)
-                        .foregroundColor(isAvailable ? theme.enteredDigit : theme.secondaryText.opacity(0.5))
+                        .font(.system(size: buttonSize * 1.08, weight: .regular))
+                        .foregroundColor(isAvailable ? theme.enteredDigit : theme.secondaryText.opacity(0.45))
                         .strikethrough(!isAvailable)
                         .minimumScaleFactor(0.5)
                         .lineLimit(1)
                         .frame(width: buttonSize, height: buttonSize * 1.35)
-                        .background(isAvailable ? theme.cardBackground : theme.cardBackground.opacity(0.35))
-                        .cornerRadius(8)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .disabled(!isAvailable || selectedCell == nil)

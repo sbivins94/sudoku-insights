@@ -55,8 +55,9 @@ public struct CellView: View, Equatable {
                 )
             } else if value != 0 {
                 Text("\(value)")
-                    .font(.system(size: cellSize * 0.62))
-                    .fontWeight(isInitial ? .bold : .semibold)
+                    // Given vs. entered is carried by color alone — a larger, lighter
+                    // digit reads more clearly than a smaller bold one.
+                    .font(.system(size: cellSize * 0.76, weight: .regular))
                     .foregroundColor(digitColor)
                     .minimumScaleFactor(0.5)
                     .lineLimit(1)
